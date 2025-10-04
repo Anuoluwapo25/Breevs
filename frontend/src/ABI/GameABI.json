@@ -1,0 +1,192 @@
+[
+  {
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "gameId",
+        "internalType": "uint256",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "stakeAmount",
+        "internalType": "uint256",
+        "type": "uint256"
+      }
+    ],
+    "name": "GameCreated",
+    "anonymous": false,
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "gameId",
+        "internalType": "uint256",
+        "type": "uint256"
+      }
+    ],
+    "name": "GameStarted",
+    "anonymous": false,
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "gameId",
+        "internalType": "uint256",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "winner",
+        "internalType": "address",
+        "type": "address"
+      }
+    ],
+    "name": "GameWon",
+    "anonymous": false,
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "gameId",
+        "internalType": "uint256",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "player",
+        "internalType": "address",
+        "type": "address"
+      }
+    ],
+    "name": "PlayerEliminated",
+    "anonymous": false,
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "indexed": true,
+        "name": "gameId",
+        "internalType": "uint256",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "name": "player",
+        "internalType": "address",
+        "type": "address"
+      }
+    ],
+    "name": "PlayerJoined",
+    "anonymous": false,
+    "type": "event"
+  },
+  {
+    "outputs": [{ "name": "", "internalType": "uint256", "type": "uint256" }],
+    "inputs": [],
+    "name": "MAX_PLAYERS",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "outputs": [],
+    "inputs": [
+      { "name": "stakeAmount", "internalType": "uint256", "type": "uint256" }
+    ],
+    "name": "createGameRoom",
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "outputs": [
+      { "name": "creator", "internalType": "address", "type": "address" },
+      { "name": "stakeAmount", "internalType": "uint256", "type": "uint256" },
+      {
+        "name": "status",
+        "internalType": "enum CoreRussianRoulette.GameStatus",
+        "type": "uint8"
+      }
+    ],
+    "inputs": [{ "name": "", "internalType": "uint256", "type": "uint256" }],
+    "name": "games",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "outputs": [
+      {
+        "name": "activeGameIds",
+        "internalType": "uint256[]",
+        "type": "uint256[]"
+      }
+    ],
+    "inputs": [],
+    "name": "getAllActiveGames",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "outputs": [
+      { "name": "creator", "internalType": "address", "type": "address" },
+      { "name": "stakeAmount", "internalType": "uint256", "type": "uint256" },
+      {
+        "name": "status",
+        "internalType": "enum CoreRussianRoulette.GameStatus",
+        "type": "uint8"
+      },
+      { "name": "playerCount", "internalType": "uint256", "type": "uint256" }
+    ],
+    "inputs": [
+      { "name": "gameId", "internalType": "uint256", "type": "uint256" }
+    ],
+    "name": "getGameStatus",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "outputs": [
+      { "name": "", "internalType": "address[]", "type": "address[]" }
+    ],
+    "inputs": [
+      { "name": "gameId", "internalType": "uint256", "type": "uint256" }
+    ],
+    "name": "getPlayers",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "outputs": [],
+    "inputs": [
+      { "name": "gameId", "internalType": "uint256", "type": "uint256" }
+    ],
+    "name": "joinGameRoom",
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "outputs": [],
+    "inputs": [
+      { "name": "gameId", "internalType": "uint256", "type": "uint256" }
+    ],
+    "name": "spinRoulette",
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "outputs": [],
+    "inputs": [
+      { "name": "gameId", "internalType": "uint256", "type": "uint256" }
+    ],
+    "name": "startGame",
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  { "stateMutability": "payable", "type": "receive" }
+]
