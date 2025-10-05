@@ -139,6 +139,38 @@
   (map-get? player-game-data {game-id: game-id, player: player})
 )
 
+;; Get total number of games
+(define-read-only (get-total-games)
+  (var-get game-counter)
+)
+
+;; Check if a user created a specific game
+(define-read-only (is-game-creator (game-id uint) (user principal))
+  (match (map-get? games game-id)
+    game
+    (is-eq (get creator game) user)
+    false
+  )
+)
+
+;; Check if a user is in a specific game
+(define-read-only (is-user-in-game (game-id uint) (user principal))
+  (match (map-get? games game-id)
+    game
+    (is-some (index-of (get players game) user))
+    false
+  )
+)
+
+;; Check if a game is active (not completed)
+(define-read-only (is-game-active (game-id uint))
+  (match (map-get? games game-id)
+    game
+    (< (get status game) STATUS-COMPLETED)
+    false
+  )
+)
+
 ;; ============================================
 ;; GAME MANAGEMENT FUNCTIONS
 ;; ============================================

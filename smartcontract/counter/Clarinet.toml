@@ -5,7 +5,7 @@ authors = []
 telemetry = true
 cache_dir = "./.cache"
 
-[contracts.Breevs]
+[contracts.Breevs-v2]
 path = "contracts/Breevs.clar"
 epoch = "latest"
 

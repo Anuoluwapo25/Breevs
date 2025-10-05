@@ -9,9 +9,9 @@ plan:
     - id: 0
       transactions:
         - contract-publish:
-            contract-name: Breevs
+            contract-name: Breevs-v2
             expected-sender: ST168JS95Y70CV8T7T63GF8V420FG2VCBZ5TXP2DA
-            cost: 151710
+            cost: 158870
             path: contracts/Breevs.clar
             anchor-block-only: true
             clarity-version: 3
