@@ -6,7 +6,6 @@ class GameSummary(models.Model):
     game = models.OneToOneField(Game, on_delete=models.CASCADE, related_name='summary')
     ai_summary = models.TextField()
     
-    # Structured summary data
     total_rounds = models.IntegerField()
     total_spins = models.IntegerField()
     elimination_order = models.JSONField(default=list)  # List of addresses in elimination order
