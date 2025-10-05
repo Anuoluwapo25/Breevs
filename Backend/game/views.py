@@ -105,7 +105,6 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
                 Winner: {game.winner_address[:10] if game.winner_address else 'N/A'}...
                 """
             
-            # Generate AI summary
             client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
             
             message = client.messages.create(
