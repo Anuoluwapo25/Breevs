@@ -3,9 +3,7 @@
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Logo from "@/assets/RR_LOGO_1.png";
-import { GameStatus } from "@/hooks/useGame";
-import { formatEther } from "viem";
-import { useGameInteraction } from "../hooks/useGameInteraction";
+import { GameStatus } from "@/lib/contractCalls";
 import { motion } from "framer-motion";
 
 interface GameCardProps {
@@ -15,7 +13,9 @@ interface GameCardProps {
   playerCount: number;
   status: GameStatus;
   isUserGame?: boolean;
-  onGameSelect?: (stakeAmount: bigint) => void;
+  onGameSelect?: (gameId: bigint, stakeAmount: bigint) => void; 
+  error?: string;
+  clearError?: () => void;
 }
 
 export default function GameCard({
@@ -26,17 +26,22 @@ export default function GameCard({
   status,
   isUserGame,
   onGameSelect,
+  error,
+  clearError,
 }: GameCardProps) {
   const router = useRouter();
-  const { error, clearError } = useGameInteraction();
 
   const handleAction = () => {
     if (status === GameStatus.Active && !isUserGame && onGameSelect) {
-      onGameSelect(stakeAmount);
+      // Notify parent to open StakeModal
+      onGameSelect(gameId, stakeAmount);
     } else {
+      // Direct navigation for ended games or user's own games
       router.push(`/GameScreen/${gameId}`);
     }
   };
+
+  const stakeInSTX = Number(stakeAmount) / 1_000_000;
 
   return (
     <motion.div
@@ -52,12 +57,9 @@ export default function GameCard({
         <div className="flex justify-between items-center gap-2">
           <div className="text-white min-w-0">
             <p className="text-[10px] sm:text-xs text-gray-400">Created by</p>
-            {/* Mobile (≤640px) */}
             <p className="text-xs font-semibold sm:hidden">
               {creator.slice(0, 3)}...{creator.slice(-3)}
             </p>
-
-            {/* Tablet & Desktop (≥640px) */}
             <p className="hidden sm:block text-sm font-semibold">
               {creator.slice(0, 6)}...{creator.slice(-4)}
             </p>
@@ -70,7 +72,7 @@ export default function GameCard({
           </div>
         </div>
 
-        {/* Game Logo (hidden on mobile) */}
+        {/* Game Logo */}
         <div className="flex justify-center">
           <Image
             src={Logo}
@@ -85,10 +87,7 @@ export default function GameCard({
             Stake and Win
           </p>
           <p className="text-lg sm:text-2xl font-bold text-red-500">
-            {parseFloat(formatEther(stakeAmount))
-              .toFixed(3)
-              .replace(/\.?0+$/, "")}{" "}
-            CORE
+            {stakeInSTX.toFixed(3).replace(/\.?0+$/, "")} STX
           </p>
         </div>
 
@@ -107,7 +106,7 @@ export default function GameCard({
         </div>
 
         {/* Error */}
-        {error && (
+        {error && clearError && (
           <div className="mt-2 p-2 bg-red-900/50 rounded text-xs sm:text-sm text-red-400">
             {error}
             <button
