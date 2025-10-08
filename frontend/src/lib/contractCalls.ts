@@ -5,13 +5,13 @@ import {
   uintCV,
   cvToJSON,
   cvToValue,
-  hexToCV,
   principalCV,
   fetchCallReadOnlyFunction,
 } from "@stacks/transactions";
 import { STACKS_TESTNET } from "@stacks/network";
 import { clarityToJSON } from "@/utils/clarity";
 import { waitForTxConfirmation } from "@/utils/waitForTx";
+import { buildStxPostConditions } from "@/utils/postConditionHelper";
 
 export enum GameStatus {
   Active = 0,
@@ -22,10 +22,11 @@ export enum GameStatus {
 export interface GameInfo {
   gameId: bigint;
   creator: string;
-  stakeAmount: bigint;
+  stake: bigint;
   status: GameStatus;
   playerCount: number;
   players: string[];
+  prizePool: bigint;
   winner: string | null;
 }
 
@@ -38,12 +39,15 @@ const APP_DETAILS = { name: "Breevs", icon: "/favicon.ico" };
 // =============================
 //  WRITE FUNCTIONS
 // =============================
-
 export async function createGame(
   stake: bigint,
-  duration: bigint
+  duration: bigint,
+  stxAddress: string
 ): Promise<{ txId: string; gameId: bigint | null }> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    if (!stxAddress) return reject(new Error("No wallet address connected"));
+
+    const pcResult = await buildStxPostConditions(stxAddress, stake);
     const options: ContractCallOptions = {
       contractAddress: CONTRACT_ADDRESS,
       contractName: CONTRACT_NAME,
@@ -51,122 +55,97 @@ export async function createGame(
       functionArgs: [uintCV(stake), uintCV(duration)],
       network: STACKS_TESTNET,
       appDetails: APP_DETAILS,
+      postConditionMode: pcResult.postConditionMode,
+      ...("postConditions" in pcResult
+        ? { postConditions: pcResult.postConditions }
+        : {}),
 
       onFinish: async (data: any) => {
         console.log("✅ createGame TX:", data);
-
         const txId = data?.txId;
-        if (!txId) {
-          console.error("⚠️ No txId found in createGame result");
-          return reject(new Error("Missing txId"));
-        }
+        if (!txId) return reject(new Error("Missing txId"));
 
-        // 1️⃣ Wait for confirmation on-chain
-        const confirmed = await waitForTxConfirmation(txId);
+        // wait for confirmation
+        const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+        if (!confirmed) return reject(new Error("Transaction not confirmed"));
 
-        if (confirmed) {
-          console.log("✅ Game creation confirmed — fetching all games...");
-
-          const games = await getAllGames();
-          const latestGame = games[games.length - 1];
-
-          resolve({
-            txId,
-            gameId: latestGame?.gameId ?? null,
-          });
-        } else {
-          reject(new Error("Transaction not confirmed"));
-        }
+        // refresh game list and resolve new id if found
+        // const games = await getAllGames();
+        // const latest = games[games.length - 1];
+        // resolve({ txId, gameId: latest?.gameId ?? null });
+        resolve({ txId, gameId: null });
       },
 
       onCancel: () => reject(new Error("User canceled createGame")),
     };
 
+    // open wallet UI
     void openContractCall(options);
   });
 }
 
 export async function getAllGames(): Promise<GameInfo[]> {
-  console.log("%c🔍 Fetching total number of games...", "color: cyan;");
-
-  // 1️⃣ Get total number of games
-  const totalGamesResponse = await fetchCallReadOnlyFunction({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "get-total-games",
-    network: STACKS_TESTNET,
-    senderAddress: CONTRACT_ADDRESS,
-    functionArgs: [],
-  });
-
-  console.log(
-    "%c🧩 Raw totalGamesResponse:",
-    "color: gray;",
-    totalGamesResponse
-  );
-
-  // Convert to Clarity value
-  const totalGamesCV =
-    typeof totalGamesResponse === "object" && "result" in totalGamesResponse
-      ? hexToCV(totalGamesResponse.result as string)
-      : totalGamesResponse;
-
-  console.log(
-    "%c📦 Decoded ClarityValue (total games):",
-    "color: orange;",
-    totalGamesCV
-  );
-
-  const totalGames = Number(cvToValue(totalGamesCV));
-  console.log("%c🎮 Total Games:", "color: lime;", totalGames);
-
-  if (totalGames === 0) {
-    console.log("%c⚠️ No games found.", "color: yellow;");
-    return [];
-  }
-
-  // 2️⃣ Prepare read-only calls for each game
-  console.log("%c🚀 Fetching individual games...", "color: cyan;");
-  const gameCalls = Array.from({ length: totalGames }, (_, i) =>
-    fetchCallReadOnlyFunction({
+  try {
+    const totalGamesCV = await fetchCallReadOnlyFunction({
       contractAddress: CONTRACT_ADDRESS,
       contractName: CONTRACT_NAME,
-      functionName: "get-game-by-id",
-      network: STACKS_TESTNET,
+      functionName: "get-total-games",
+      functionArgs: [],
       senderAddress: CONTRACT_ADDRESS,
-      functionArgs: [uintCV(i + 1)],
-    })
-      .then((res) => {
-        console.log(`%c📥 Raw Game #${i + 1} Response:`, "color: gray;", res);
+      network: STACKS_TESTNET,
+    });
 
-        const clarityValue =
-          typeof res === "object" && "result" in res
-            ? hexToCV(res.result as string)
-            : typeof res === "string"
-            ? hexToCV(res)
-            : res;
+    const totalGames = Number(cvToValue(totalGamesCV));
+    if (!totalGames) {
+      return [];
+    }
 
-        const decoded = cvToValue(clarityValue);
+    const games: GameInfo[] = [];
 
-        console.log(`%c✅ Decoded Game #${i + 1}:`, "color: lime;", decoded);
+    for (let i = 1; i <= totalGames; i++) {
+      try {
+        const gameCV = await fetchCallReadOnlyFunction({
+          contractAddress: CONTRACT_ADDRESS,
+          contractName: CONTRACT_NAME,
+          functionName: "get-game-info",
+          functionArgs: [uintCV(i)],
+          senderAddress: CONTRACT_ADDRESS,
+          network: STACKS_TESTNET,
+        });
 
-        return decoded ? { ...decoded, gameId: BigInt(i + 1) } : null;
-      })
-      .catch((err) => {
-        console.error(`❌ Error fetching game #${i + 1}:`, err);
-        return null;
-      })
-  );
+        if (!gameCV || gameCV.type === "none") {
+          console.warn(`⚠ Game ${i} returned null or none`);
+          continue;
+        }
 
-  // 3️⃣ Wait for all games to resolve
-  const results = await Promise.all(gameCalls);
+        const gameData = clarityToJSON(gameCV);
+        if (!gameData || !gameData.creator) {
+          console.warn(`⚠ Game ${i} missing creator — skipping`);
+          continue;
+        }
 
-  // 4️⃣ Filter valid results
-  const validGames = results.filter((game): game is GameInfo => game !== null);
+        games.push({
+          gameId: BigInt(i),
+          creator: gameData.creator,
+          stake: BigInt(gameData.stake ?? 0n),
+          prizePool: BigInt(gameData["prize-pool"] ?? 0n),
+          status: Number(gameData.status ?? 0),
+          players: Array.isArray(gameData.players) ? gameData.players : [],
+          playerCount: Array.isArray(gameData.players)
+            ? gameData.players.length
+            : 0,
+          winner: gameData.winner ?? null,
+        });
+      } catch (innerErr) {
+        console.warn(`⚠ Skipping game ${i}:`, innerErr);
+      }
+    }
 
-  console.log("%c🎯 Final Game List:", "color: magenta;", validGames);
-
-  return validGames;
+    return games;
+  } catch (err: any) {
+    console.error("❌ getAllGames failed:", err.message || err);
+    return [];
+  }
 }
 
 export function joinGame(gameId: bigint): Promise<{ txId: string }> {
@@ -257,14 +236,20 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
 
   const clarityData = clarityToJSON(result);
 
+  const winner =
+    clarityData.winner && clarityData.winner !== "none"
+      ? clarityData.winner
+      : null;
+
   return {
     gameId,
     creator: clarityData.creator,
-    stakeAmount: BigInt(clarityData.stake),
+    stake: BigInt(clarityData.stake || 0),
     status: Number(clarityData.status) as GameStatus,
-    playerCount: Number(clarityData.player_count ?? 0),
+    playerCount: Number(clarityData.players?.length ?? 0),
     players: clarityData.players ?? [],
-    winner: clarityData.winner ?? null,
+    prizePool: BigInt(clarityData["prize-pool"] || 0),
+    winner,
   };
 }
 

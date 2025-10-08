@@ -5,9 +5,6 @@ import { Open_Sans } from "next/font/google";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
-// import Link from "next/link";
-// import Image from "next/image";
-// import Logo from "@/assets/RR_LOGO_1.png";
 import Modal from "@/component/ResuableModal";
 import GlowingEffect from "@/component/GlowingEffectProps";
 import BackgroundImgBlur from "@/component/BackgroundBlur";
@@ -20,11 +17,6 @@ import { useActiveGames, useMyGames, useGameStatus } from "@/hooks/useGame";
 import { GameStatus } from "@/lib/contractCalls";
 import { useGameStore } from "@/store/gameStore";
 
-// ---------- Utility Functions ----------
-function microToStx(amount: bigint): string {
-  return (Number(amount) / 1_000_000).toFixed(6);
-}
-
 // ---------- Fonts ----------
 const openSans = Open_Sans({ subsets: ["latin"], weight: ["400", "700"] });
 
@@ -33,29 +25,53 @@ export default function HomePage() {
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
 
-  const [activeTab, setActiveTab] = useState<"active" | "my-games">("active");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCreateGameOpen, setIsCreateGameOpen] = useState(false);
-  const [isFiltersApplied, setIsFiltersApplied] = useState(false);
 
-  const [filters, setFilters] = useState<FilterOptions>({
-    sortBy: "newest",
-    sortOrder: "desc",
-    minStake: "0",
-    status: GameStatus.Active,
-  });
-
-  // Zustand state keeps the games in memory
-  const { activeGames, setActiveGames } = useGameStore();
+  const {
+    activeTab,
+    setActiveTab,
+    filters,
+    setFilters,
+    activeGames,
+    setActiveGames,
+    myGames,
+    setMyGames,
+    loading: storeLoading,
+  } = useGameStore();
 
   const { data: fetchedActiveGames = [], isLoading: isLoadingGames } =
     useActiveGames();
+
+  const isFiltersApplied =
+    filters.sortBy !== "newest" ||
+    filters.sortOrder !== "desc" ||
+    filters.minStake !== "0" ||
+    filters.status !== GameStatus.Active;
+
+  console.log("Fetched Active Games:", fetchedActiveGames);
 
   useEffect(() => {
     if (fetchedActiveGames.length > 0) {
       setActiveGames(fetchedActiveGames);
     }
   }, [fetchedActiveGames, setActiveGames]);
+
+  // Filter active games based on store filters
+  const filteredActiveGames = activeGames
+    .filter((game) => {
+      const stakeInStx = Number(game.stake) / 1_000_000;
+      return (
+        stakeInStx >= Number(filters.minStake) && game.status === filters.status
+      );
+    })
+    .sort((a, b) => {
+      // Implement sorting based on filters (placeholder; adjust as needed)
+      if (filters.sortBy === "newest") {
+        return filters.sortOrder === "desc" ? -1 : 1;
+      }
+      return 0;
+    });
 
   return (
     <BackgroundImgBlur>
@@ -86,9 +102,13 @@ export default function HomePage() {
               <div className="bg-[#0f1c5c] p-2 rounded-xl mb-6">
                 <GameFilter
                   onFilterChange={(newFilters) => {
-                    setFilters(newFilters);
+                    setFilters({
+                      sortBy: newFilters.sortBy,
+                      sortOrder: newFilters.sortOrder,
+                      minStake: newFilters.minStake ?? "0",
+                      status: newFilters.status ?? GameStatus.Active,
+                    });
                     setIsFilterOpen(false);
-                    setIsFiltersApplied(true);
                   }}
                 />
               </div>
@@ -158,8 +178,7 @@ export default function HomePage() {
             </div>
           ) : activeTab === "active" ? (
             <ActiveGamesGrid
-              games={activeGames}
-              filters={filters}
+              games={filteredActiveGames}
               setIsCreateGameOpen={setIsCreateGameOpen}
             />
           ) : (
@@ -174,18 +193,14 @@ export default function HomePage() {
 // ---------- Active Games Grid ----------
 function ActiveGamesGrid({
   games,
-  filters,
   setIsCreateGameOpen,
 }: {
   games: any[];
-  filters: FilterOptions;
   setIsCreateGameOpen: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [selectedGame, setSelectedGame] = useState<{
-    id: bigint;
-    stake: bigint;
-  } | null>(null);
+  const selectedGame = useGameStore((state) => state.selectedGame);
+  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
@@ -221,19 +236,14 @@ function ActiveGamesGrid({
 
       {/* Active Games */}
       {games.map((game) => (
-        <GameDataLoader
-          key={game.gameId.toString()}
-          gameId={game.gameId}
-          onSelect={(id, stake) => setSelectedGame({ id, stake })}
-        />
+        <GameDataLoader key={game.gameId.toString()} game={game} />
       ))}
 
       {selectedGame && (
         <StakeModal
           isOpen={true}
           onClose={() => setSelectedGame(null)}
-          stakeAmount={`${microToStx(selectedGame.stake)} STX`}
-          onSuccess={() => router.push(`/GameScreen/${selectedGame.id}`)}
+          onSuccess={() => router.push(`/GameScreen/${selectedGame.gameId}`)}
         />
       )}
 
@@ -248,7 +258,16 @@ function ActiveGamesGrid({
 
 // ---------- My Games Grid ----------
 function MyGamesGrid({ address }: { address: string }) {
-  const { data: myGames, isLoading } = useMyGames(address);
+  const { data: fetchedMyGames, isLoading } = useMyGames(address);
+  const setMyGames = useGameStore((state) => state.setMyGames);
+
+  useEffect(() => {
+    if (fetchedMyGames) {
+      setMyGames(fetchedMyGames);
+    }
+  }, [fetchedMyGames, setMyGames]);
+
+  const { myGames: storeMyGames } = useGameStore();
 
   if (isLoading)
     return (
@@ -256,13 +275,15 @@ function MyGamesGrid({ address }: { address: string }) {
         Loading your games...
       </div>
     );
-  if (!myGames?.length)
+  if (!storeMyGames?.length)
     return (
       <div className="text-center py-10 text-gray-400">No games found.</div>
     );
 
-  const activeGames = myGames.filter((g) => g.status === GameStatus.Active);
-  const endedGames = myGames.filter((g) => g.status === GameStatus.Ended);
+  const activeGames = storeMyGames.filter(
+    (g) => g.status === GameStatus.Active
+  );
+  const endedGames = storeMyGames.filter((g) => g.status === GameStatus.Ended);
 
   return (
     <div className="space-y-10">
@@ -273,11 +294,7 @@ function MyGamesGrid({ address }: { address: string }) {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {activeGames.map((game) => (
-              <GameDataLoader
-                key={game.gameId.toString()}
-                gameId={game.gameId}
-                onSelect={() => {}}
-              />
+              <GameDataLoader key={game.gameId.toString()} game={game} />
             ))}
           </div>
         </section>
@@ -290,11 +307,7 @@ function MyGamesGrid({ address }: { address: string }) {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {endedGames.map((game) => (
-              <GameDataLoader
-                key={game.gameId.toString()}
-                gameId={game.gameId}
-                onSelect={() => {}}
-              />
+              <GameDataLoader key={game.gameId.toString()} game={game} />
             ))}
           </div>
         </section>
@@ -304,26 +317,19 @@ function MyGamesGrid({ address }: { address: string }) {
 }
 
 // ---------- Game Data Loader ----------
-function GameDataLoader({
-  gameId,
-  onSelect,
-}: {
-  gameId: bigint;
-  onSelect: (id: bigint, stake: bigint) => void;
-}) {
-  const { data: game, isLoading } = useGameStatus(gameId);
+function GameDataLoader({ game }: { game: any }) {
+  const { data: fullGame, isLoading } = useGameStatus(game.gameId);
 
-  if (isLoading || !game)
+  if (isLoading || !fullGame)
     return <div className="bg-[#191F57CF] p-6 rounded-lg animate-pulse h-48" />;
 
   return (
     <GameCard
-      gameId={gameId}
-      creator={game.creator as `0x${string}`}
-      stakeAmount={game.stakeAmount}
-      playerCount={game.playerCount}
-      status={game.status}
-      onGameSelect={(stake) => onSelect(gameId, stake)}
+      gameId={fullGame.gameId}
+      creator={fullGame.creator as `0x${string}`}
+      stake={fullGame.stake}
+      playerCount={fullGame.playerCount}
+      status={fullGame.status}
     />
   );
 }

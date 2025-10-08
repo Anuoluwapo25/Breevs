@@ -5,15 +5,15 @@ import Image from "next/image";
 import Logo from "@/assets/RR_LOGO_1.png";
 import { GameStatus } from "@/lib/contractCalls";
 import { motion } from "framer-motion";
+import { useGameStore } from "@/store/gameStore";
 
 interface GameCardProps {
   gameId: bigint;
-  creator: `0x${string}`;
-  stakeAmount: bigint;
+  creator: string;
+  stake: bigint;
   playerCount: number;
-  status: GameStatus;
+  status: GameStatus | number;
   isUserGame?: boolean;
-  onGameSelect?: (gameId: bigint, stakeAmount: bigint) => void; 
   error?: string;
   clearError?: () => void;
 }
@@ -21,27 +21,45 @@ interface GameCardProps {
 export default function GameCard({
   gameId,
   creator,
-  stakeAmount,
+  stake,
   playerCount,
   status,
   isUserGame,
-  onGameSelect,
   error,
   clearError,
 }: GameCardProps) {
   const router = useRouter();
+  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
 
   const handleAction = () => {
-    if (status === GameStatus.Active && !isUserGame && onGameSelect) {
-      // Notify parent to open StakeModal
-      onGameSelect(gameId, stakeAmount);
+    if (status === GameStatus.Active && !isUserGame) {
+      
+      setSelectedGame({ gameId, creator, stake, playerCount, status } as any);
     } else {
-      // Direct navigation for ended games or user's own games
       router.push(`/GameScreen/${gameId}`);
     }
   };
 
-  const stakeInSTX = Number(stakeAmount) / 1_000_000;
+  const stakeValue = typeof stake === "bigint" ? stake : BigInt(stake ?? 0);
+  const stakeInSTX = Number(stakeValue) / 1_000_000;
+
+  const shortCreator =
+    creator && creator.startsWith("ST")
+      ? `${creator.slice(0, 6)}...${creator.slice(-4)}`
+      : "Unknown";
+
+  const getStatusLabel = (s: GameStatus | number) => {
+    switch (s) {
+      case GameStatus.Active:
+        return "In Progress";
+      case GameStatus.InProgress:
+        return "Pending";
+      case GameStatus.Ended:
+        return "Ended";
+      default:
+        return "Unknown";
+    }
+  };
 
   return (
     <motion.div
@@ -57,17 +75,22 @@ export default function GameCard({
         <div className="flex justify-between items-center gap-2">
           <div className="text-white min-w-0">
             <p className="text-[10px] sm:text-xs text-gray-400">Created by</p>
-            <p className="text-xs font-semibold sm:hidden">
-              {creator.slice(0, 3)}...{creator.slice(-3)}
-            </p>
-            <p className="hidden sm:block text-sm font-semibold">
-              {creator.slice(0, 6)}...{creator.slice(-4)}
+            <p className="text-xs sm:text-sm font-semibold truncate max-w-[120px]">
+              {shortCreator}
             </p>
           </div>
 
-          <div className="flex-shrink-0 bg-green-500/20 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full flex items-center justify-center">
-            <span className="text-green-400 text-[9px] sm:text-xs truncate max-w-[60px] sm:max-w-[100px]">
-              {status === GameStatus.Active ? "In Progress" : "Ended"}
+          <div
+            className={`flex-shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full flex items-center justify-center ${
+              status === GameStatus.Active
+                ? "bg-green-500/20 text-green-400"
+                : status === GameStatus.Ended
+                ? "bg-red-500/20 text-red-400"
+                : "bg-gray-500/20 text-gray-300"
+            }`}
+          >
+            <span className="text-[9px] sm:text-xs truncate max-w-[60px] sm:max-w-[100px]">
+              {getStatusLabel(status)}
             </span>
           </div>
         </div>
@@ -87,7 +110,11 @@ export default function GameCard({
             Stake and Win
           </p>
           <p className="text-lg sm:text-2xl font-bold text-red-500">
-            {stakeInSTX.toFixed(3).replace(/\.?0+$/, "")} STX
+            {stakeValue > 0n
+              ? `${Number(stakeInSTX.toFixed(3))
+                  .toString()
+                  .replace(/\.?0+$/, "")} STX`
+              : "Free Entry"}
           </p>
         </div>
 
@@ -96,11 +123,11 @@ export default function GameCard({
           <div className="grid grid-cols-2 gap-2 text-center text-[10px] sm:text-sm">
             <div className="bg-gray-800/50 rounded-lg p-2 sm:p-3">
               <p className="text-gray-400">Players</p>
-              <p className="text-white font-bold">{playerCount}/5</p>
+              <p className="text-white font-bold">{playerCount}/6</p>
             </div>
             <div className="bg-gray-800/50 rounded-lg p-2 sm:p-3">
-              <p className="text-gray-400">Time Left</p>
-              <p className="text-white font-bold">5:00</p>
+              <p className="text-gray-400">Game ID</p>
+              <p className="text-white font-bold">#{gameId.toString()}</p>
             </div>
           </div>
         </div>

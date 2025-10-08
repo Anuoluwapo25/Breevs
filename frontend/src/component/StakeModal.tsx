@@ -6,21 +6,18 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
 import { useJoinGame } from "@/hooks/useGame";
+import { useGameStore } from "@/store/gameStore";
 
 interface StakeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  stakeAmount: string;
   onSuccess?: () => void;
-  gameId?: bigint;
 }
 
 const StakeModal: React.FC<StakeModalProps> = ({
   isOpen,
   onClose,
-  stakeAmount,
   onSuccess,
-  gameId,
 }) => {
   const router = useRouter();
   const { isSignedIn } = useAuth();
@@ -33,11 +30,27 @@ const StakeModal: React.FC<StakeModalProps> = ({
   const [showManualProceed, setShowManualProceed] = useState(false);
   const isMounted = useRef(true);
 
+  const selectedGame = useGameStore((state) => state.selectedGame);
+  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
+
+  const stake = selectedGame?.stake ?? 0n;
+  const gameId = selectedGame?.gameId;
+
+  const stakeValue = typeof stake === "bigint" ? stake : BigInt(stake ?? 0);
+  const stakeInSTX = Number(stakeValue) / 1_000_000;
+
   useEffect(() => {
     return () => {
       isMounted.current = false;
     };
   }, []);
+
+  console.log(
+    "🚀 StakeModal received stake:",
+    stake?.toString(),
+    "gameId:",
+    gameId
+  );
 
   const handleStake = async () => {
     try {
@@ -57,13 +70,13 @@ const StakeModal: React.FC<StakeModalProps> = ({
         return;
       }
 
-      // Call clarity joinGame
       const tx = await joinGameMutation({ gameId });
       console.log("Join game transaction:", tx);
 
       setTxId(tx.txId);
 
       onClose();
+      setSelectedGame(null);
       if (onSuccess) {
         onSuccess();
       } else {
@@ -80,6 +93,7 @@ const StakeModal: React.FC<StakeModalProps> = ({
 
   const handleManualProceed = () => {
     onClose();
+    setSelectedGame(null);
     router.push(`/GameScreen/${gameId}`);
   };
 
@@ -98,8 +112,14 @@ const StakeModal: React.FC<StakeModalProps> = ({
         <GlowingEffect className="top-[63px] left-[47px]" />
         <h2 className="text-[25px] font-bold mb-4">Stake to Join</h2>
 
-        <div className="bg-white text-[#0B1445] py-1 px-15 rounded-lg mb-10 inline-block font-bold">
-          {stakeAmount} STX
+        {/* ✅ Fixed display logic */}
+        <div className="bg-white text-[#0B1445] py-1 px-6 rounded-lg mb-10 inline-block font-bold">
+          
+          {stakeValue > 0n
+            ? `${Number(stakeInSTX.toFixed(3))
+                .toString()
+                .replace(/\.?0+$/, "")} STX`
+            : "Free Entry"}
         </div>
 
         {txId && (

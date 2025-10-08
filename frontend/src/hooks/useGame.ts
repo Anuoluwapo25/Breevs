@@ -129,9 +129,17 @@ export function useGameStatus(gameId: bigint) {
 
 export function useCreateGame() {
   const qc = useQueryClient();
+
   return useMutation({
-    mutationFn: ({ stake, duration }: { stake: bigint; duration: bigint }) =>
-      createGame(stake, duration),
+    mutationFn: ({
+      stake,
+      duration,
+      stxAddress,
+    }: {
+      stake: bigint;
+      duration: bigint;
+      stxAddress: string;
+    }) => createGame(stake, duration, stxAddress),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["activeGames"] });
       qc.invalidateQueries({ queryKey: ["myGames"] });

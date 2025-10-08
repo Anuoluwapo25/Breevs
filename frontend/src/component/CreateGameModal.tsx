@@ -22,7 +22,7 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
 
   const { mutateAsync: createGame } = useCreateGame();
 
-  const [stake, setStake] = useState("0.1");
+  const [stake, setStake] = useState("1");
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
@@ -48,17 +48,28 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
         return;
       }
 
+      const stakeValue = Number(stake);
+      if (stakeValue < 1) {
+        setError("Stake must be at least 1 STX");
+        setIsProcessing(false);
+        return;
+      }
+
       // Convert to bigint
       const stakeBigInt = BigInt(Math.floor(Number(stake) * 1_000_000));
       const durationBigInt = BigInt(600);
 
       // Call Clarity function
-      await createGame({ stake: stakeBigInt, duration: durationBigInt });
+      const { txId } = await createGame({
+        stake: stakeBigInt,
+        duration: durationBigInt,
+        stxAddress,
+      });
 
       // You can listen for transaction via Stacks API or redirect user
-      setTxId("pending...");
+      setTxId(txId);
       onClose();
-      router.push("/GameScreen/1");
+      router.push(`/GameScreen/1?tx=${txId}`);
     } catch (err) {
       console.error("Create game error:", err);
       if (isMounted.current) {
@@ -80,7 +91,7 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
       setIsProcessing(false);
       setTxId(null);
       setShowManualProceed(false);
-      setStake("0.1");
+      setStake("1");
     }
   }, [isOpen]);
 
@@ -138,7 +149,7 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
         )}
 
         <button
-          className={`bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-full w-full 
+          className={`bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-full w-full
             shadow-[0_4px_0_#474d76] hover:shadow-[0_4px_0_#474d76] active:translate-y-1 transition-all mt-6
             ${isProcessing ? "opacity-70 cursor-not-allowed" : ""}`}
           onClick={handleCreateGame}

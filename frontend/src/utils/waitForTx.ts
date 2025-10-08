@@ -1,24 +1,36 @@
-export async function waitForTxConfirmation(txId: string, maxAttempts = 20) {
-  const url = `https://api.testnet.hiro.so/extended/v1/tx/${txId}`;
-  console.log(`⏳ Waiting for tx ${txId} confirmation...`);
+export async function waitForTxConfirmation(
+  txId: string,
+  timeoutSeconds = 30,
+  intervalMs = 2000
+): Promise<boolean> {
+  const start = Date.now();
 
-  for (let i = 0; i < maxAttempts; i++) {
-    const res = await fetch(url);
-    const data = await res.json();
+  while (Date.now() - start < timeoutSeconds * 1000) {
+    try {
+      const res = await fetch(
+        `https://api.testnet.hiro.so/extended/v1/tx/${txId}`
+      );
+      const data = await res.json();
 
-    if (data.tx_status === "success") {
-      console.log("✅ Transaction confirmed in block:", data.block_height);
-      return true;
+      if (data.tx_status === "success") {
+        return true;
+      }
+      if (
+        data.tx_status === "abort_by_post_condition" ||
+        data.tx_status === "abort_by_response"
+      ) {
+        console.error(`❌ Transaction ${txId} failed: ${data.tx_status}`);
+        return false;
+      }
+    } catch (err) {
+      console.warn("⚠️ Error checking transaction:", err);
     }
 
-    if (data.tx_status === "abort_by_response") {
-      console.error("❌ Transaction failed:", data.tx_result);
-      return false;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 3000)); // wait 3s
+    await new Promise((r) => setTimeout(r, intervalMs));
   }
 
-  console.warn("⚠️ Transaction confirmation timeout reached");
+  console.error(
+    `⏰ Transaction ${txId} not confirmed after ${timeoutSeconds}s`
+  );
   return false;
 }
