@@ -1,6 +1,6 @@
 "use client";
 
-import { GameStatus } from "@/hooks/useGame";
+import { GameStatus } from "@/lib/contractCalls";
 
 interface StatusBadgeProps {
   status: GameStatus;

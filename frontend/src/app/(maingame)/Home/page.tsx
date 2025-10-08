@@ -2,60 +2,76 @@
 
 import { useState, useEffect } from "react";
 import { Open_Sans } from "next/font/google";
-import Image from "next/image";
-import Logo from "@/assets/RR_LOGO_1.png";
-import { formatEther } from "viem";
-import { useRouter } from "next/navigation";
-import StakeModal from "@/component/StakeModal";
-import BackgroundImgBlur from "@/component/BackgroundBlur";
-import { useAccount, usePublicClient } from "wagmi";
-import {
-  useActiveGames,
-  useGameStatus,
-  GameStatus,
-  getGameStatus,
-} from "@/hooks/useGame";
-import Link from "next/link";
 import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
+import { useAuth, useAccount } from "@micro-stacks/react";
+import Modal from "@/component/ResuableModal";
+import GlowingEffect from "@/component/GlowingEffectProps";
+import BackgroundImgBlur from "@/component/BackgroundBlur";
+import StakeModal from "@/component/StakeModal";
 import GameCard from "@/component/GameCard";
 import GameFilter, { FilterOptions } from "@/component/GameFilter";
 import CreateGameModal from "@/component/CreateGameModal";
-import Modal from "@/component/ResuableModal";
-import GlowingEffect from "@/component/GlowingEffectProps";
 
-const stakes = [
-  { amount: "1 CORE" },
-  { amount: "0.1 CORE" },
-  { amount: "1.12 CORE" },
-  { amount: "2 CORE" },
-  { amount: "0.5 CORE" },
-  { amount: "3 CORE" },
-  { amount: "5 CORE" },
-  { amount: "0.8 CORE" },
-  { amount: "1.5 CORE" },
-  { amount: "2.5 CORE" },
-  { amount: "4 CORE" },
-  { amount: "6 CORE" },
-  { amount: "7 CORE" },
-  { amount: "8 CORE" },
-];
+import { useActiveGames, useMyGames, useGameStatus } from "@/hooks/useGame";
+import { GameStatus } from "@/lib/contractCalls";
+import { useGameStore } from "@/store/gameStore";
 
+// ---------- Fonts ----------
 const openSans = Open_Sans({ subsets: ["latin"], weight: ["400", "700"] });
 
+// ---------- Main Page ----------
 export default function HomePage() {
-  const { isConnected, address } = useAccount();
-  const [activeTab, setActiveTab] = useState<"active" | "my-games">("active");
-  const { data: activeGameIds = [], isLoading: isLoadingGames } =
-    useActiveGames();
+  const { isSignedIn } = useAuth();
+  const { stxAddress } = useAccount();
+
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCreateGameOpen, setIsCreateGameOpen] = useState(false);
-  const [isFiltersApplied, setIsFiltersApplied] = useState(false);
-  const [filters, setFilters] = useState<FilterOptions>({
-    sortBy: "newest",
-    sortOrder: "desc",
-    minStake: "0",
-    status: GameStatus.Active,
-  });
+
+  const {
+    activeTab,
+    setActiveTab,
+    filters,
+    setFilters,
+    activeGames,
+    setActiveGames,
+    myGames,
+    setMyGames,
+    loading: storeLoading,
+  } = useGameStore();
+
+  const { data: fetchedActiveGames = [], isLoading: isLoadingGames } =
+    useActiveGames();
+
+  const isFiltersApplied =
+    filters.sortBy !== "newest" ||
+    filters.sortOrder !== "desc" ||
+    filters.minStake !== "0" ||
+    filters.status !== GameStatus.Active;
+
+  console.log("Fetched Active Games:", fetchedActiveGames);
+
+  useEffect(() => {
+    if (fetchedActiveGames.length > 0) {
+      setActiveGames(fetchedActiveGames);
+    }
+  }, [fetchedActiveGames, setActiveGames]);
+
+  // Filter active games based on store filters
+  const filteredActiveGames = activeGames
+    .filter((game) => {
+      const stakeInStx = Number(game.stake) / 1_000_000;
+      return (
+        stakeInStx >= Number(filters.minStake) && game.status === filters.status
+      );
+    })
+    .sort((a, b) => {
+      // Implement sorting based on filters (placeholder; adjust as needed)
+      if (filters.sortBy === "newest") {
+        return filters.sortOrder === "desc" ? -1 : 1;
+      }
+      return 0;
+    });
 
   return (
     <BackgroundImgBlur>
@@ -73,40 +89,51 @@ export default function HomePage() {
 
         {/* Main Content */}
         <div className="pt-32 sm:pt-28 w-full max-w-screen-xl mx-auto px-4 pb-20">
-          {/* Create Game Modal */}
+          {/* Modals */}
           <CreateGameModal
             isOpen={isCreateGameOpen}
             onClose={() => setIsCreateGameOpen(false)}
           />
 
-          {/* Game Controls Container */}
+          <Modal isOpen={isFilterOpen} onClose={() => setIsFilterOpen(false)}>
+            <div className="bg-[#0B1445] text-white text-center p-6 rounded-2xl">
+              <GlowingEffect className="top-[63px] left-[47px]" />
+              <h2 className="text-[25px] font-bold mb-4">Filter Games</h2>
+              <div className="bg-[#0f1c5c] p-2 rounded-xl mb-6">
+                <GameFilter
+                  onFilterChange={(newFilters) => {
+                    setFilters({
+                      sortBy: newFilters.sortBy,
+                      sortOrder: newFilters.sortOrder,
+                      minStake: newFilters.minStake ?? "0",
+                      status: newFilters.status ?? GameStatus.Active,
+                    });
+                    setIsFilterOpen(false);
+                  }}
+                />
+              </div>
+            </div>
+          </Modal>
+
+          {/* Tabs & Controls */}
           <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-6">
-            {/* Tabs */}
             <div className="bg-gray-800 rounded-lg p-1 inline-flex">
-              <button
-                className={`px-4 sm:px-6 py-2 rounded-md transition-colors text-sm sm:text-base ${
-                  activeTab === "active"
-                    ? "bg-red-600 text-white"
-                    : "text-gray-400 hover:text-white"
-                }`}
-                onClick={() => setActiveTab("active")}
-              >
-                Active Games
-              </button>
-              <button
-                className={`px-4 sm:px-6 py-2 rounded-md transition-colors text-sm sm:text-base ${
-                  activeTab === "my-games"
-                    ? "bg-red-600 text-white"
-                    : "text-gray-400 hover:text-white"
-                }`}
-                onClick={() => setActiveTab("my-games")}
-              >
-                My Games
-              </button>
+              {["active", "my-games"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab as "active" | "my-games")}
+                  className={`px-4 sm:px-6 py-2 rounded-md transition-colors text-sm sm:text-base ${
+                    activeTab === tab
+                      ? "bg-red-600 text-white"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {tab === "active" ? "Active Games" : "My Games"}
+                </button>
+              ))}
             </div>
 
-            {/* Filter Button */}
-            {isConnected && activeTab === "active" && (
+            {isSignedIn && activeTab === "active" && (
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
@@ -133,34 +160,11 @@ export default function HomePage() {
             )}
           </div>
 
-          {/* Filter Modal */}
-          <Modal
-            isOpen={isFilterOpen}
-            onClose={() => {
-              setIsFilterOpen(false);
-            }}
-          >
-            <div className="bg-[#0B1445] text-white text-center p-6 rounded-2xl">
-              <GlowingEffect className="top-[63px] left-[47px]" />
-              <h2 className="text-[25px] font-bold mb-4">Filter Games</h2>
-
-              <div className="bg-[#0f1c5c] p-2 rounded-xl mb-6">
-                <GameFilter
-                  onFilterChange={(newFilters) => {
-                    setFilters(newFilters);
-                    setIsFilterOpen(false);
-                    setIsFiltersApplied(true);
-                  }}
-                />
-              </div>
-            </div>
-          </Modal>
-
-          {/* Games Grid */}
-          {!isConnected ? (
+          {/* Game Grids */}
+          {!isSignedIn ? (
             <div className="text-center py-10">
               <p className="text-gray-400 mb-4">
-                Connect your wallet to Create games and see available games
+                Connect your wallet to create or join games.
               </p>
             </div>
           ) : isLoadingGames ? (
@@ -174,12 +178,11 @@ export default function HomePage() {
             </div>
           ) : activeTab === "active" ? (
             <ActiveGamesGrid
-              gameIds={activeGameIds || []}
-              filters={filters}
+              games={filteredActiveGames}
               setIsCreateGameOpen={setIsCreateGameOpen}
             />
           ) : (
-            <MyGamesGrid address={address!} />
+            <MyGamesGrid address={stxAddress!} />
           )}
         </div>
       </div>
@@ -187,52 +190,21 @@ export default function HomePage() {
   );
 }
 
-// All active games grid
+// ---------- Active Games Grid ----------
 function ActiveGamesGrid({
-  gameIds,
-  filters,
+  games,
   setIsCreateGameOpen,
 }: {
-  gameIds: bigint[];
-  filters: FilterOptions;
+  games: any[];
   setIsCreateGameOpen: (open: boolean) => void;
 }) {
-  const [filteredStakes, setFilteredStakes] = useState(stakes);
-  const [isStakeModalOpen, setIsStakeModalOpen] = useState(false);
-  const [selectedStakeAmount, setSelectedStakeAmount] = useState<bigint | null>(
-    null
-  );
   const router = useRouter();
-
-  // Apply filters to stakes
-  useEffect(() => {
-    let filtered = [...stakes];
-
-    // Apply min stake filter
-    if (filters.minStake) {
-      filtered = filtered.filter((stake) => {
-        const stakeValue = parseFloat(stake.amount.replace(" CORE", ""));
-        return stakeValue >= parseFloat(filters.minStake || "0");
-      });
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      const order = filters.sortOrder === "asc" ? 1 : -1;
-      if (filters.sortBy === "newest") {
-        const stakeA = parseFloat(a.amount.replace(" CORE", ""));
-        const stakeB = parseFloat(b.amount.replace(" CORE", ""));
-        return order * (stakeB - stakeA);
-      }
-      return 0;
-    });
-
-    setFilteredStakes(filtered);
-  }, [filters]);
+  const selectedGame = useGameStore((state) => state.selectedGame);
+  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-      {/* Create Game Card */}
+      {/* Create Game Button */}
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -259,173 +231,105 @@ function ActiveGamesGrid({
           <span className="text-sm md:text-lg font-bold text-center leading-tight">
             Create Game
           </span>
-          <span className="text-xs md:text-sm text-gray-400 group-hover:text-red-400 transition-colors hidden md:block">
-            Start your own game room
-          </span>
         </div>
       </motion.button>
 
-      {/* Game Cards */}
-      {filteredStakes.map((stake, index) => {
-        const stakeAmountStr = stake.amount.replace(" CORE", "");
-        const stakeAmountBigInt = BigInt(
-          Math.floor(parseFloat(stakeAmountStr) * 1e18)
-        );
+      {/* Active Games */}
+      {games.map((game) => (
+        <GameDataLoader key={game.gameId.toString()} game={game} />
+      ))}
 
-        return (
-          <GameCard
-            key={index}
-            gameId={BigInt(index)}
-            creator={
-              "0x1234567890123456789012345678901234567890" as `0x${string}`
-            }
-            stakeAmount={stakeAmountBigInt}
-            playerCount={2}
-            status={GameStatus.Active}
-            onGameSelect={(amount) => {
-              setSelectedStakeAmount(amount);
-              setIsStakeModalOpen(true);
-            }}
-          />
-        );
-      })}
-
-      {selectedStakeAmount && (
+      {selectedGame && (
         <StakeModal
-          isOpen={isStakeModalOpen}
-          onClose={() => {
-            setIsStakeModalOpen(false);
-            setSelectedStakeAmount(null);
-          }}
-          stakeAmount={`${formatEther(selectedStakeAmount)} CORE`}
-          onSuccess={() => {
-            // In real implementation, this would be the actual game ID
-            router.push(`/GameScreen/1`);
-          }}
+          isOpen={true}
+          onClose={() => setSelectedGame(null)}
+          onSuccess={() => router.push(`/GameScreen/${selectedGame.gameId}`)}
         />
       )}
 
-      {filteredStakes.length === 0 && (
-        <div className="col-span-2 md:col-span-3 lg:col-span-4 text-center py-10">
-          <p className="text-gray-400">
-            No active games match your current filters
-          </p>
+      {games.length === 0 && (
+        <div className="col-span-4 text-center py-10 text-gray-400">
+          No active games found
         </div>
       )}
     </div>
   );
 }
 
-// User's Games grid
-function MyGamesGrid({ address }: { address: `0x${string}` }) {
-  const [userGames, setUserGames] = useState<{
-    active: bigint[];
-    completed: bigint[];
-  }>({ active: [], completed: [] });
+// ---------- My Games Grid ----------
+function MyGamesGrid({ address }: { address: string }) {
+  const { data: fetchedMyGames, isLoading } = useMyGames(address);
+  const setMyGames = useGameStore((state) => state.setMyGames);
 
   useEffect(() => {
-    const fetchUserGames = async () => {
-      // Here you would add the logic to fetch both active and completed games
-      // This is a placeholder that you would replace with actual contract calls
-      const active: bigint[] = [];
-      const completed: bigint[] = [];
-      // Add logic to fetch games where the user is either creator or player
-      setUserGames({ active, completed });
-    };
-
-    if (address) {
-      fetchUserGames();
+    if (fetchedMyGames) {
+      setMyGames(fetchedMyGames);
     }
-  }, [address]);
+  }, [fetchedMyGames, setMyGames]);
 
-  if (!userGames.active.length && !userGames.completed.length) {
+  const { myGames: storeMyGames } = useGameStore();
+
+  if (isLoading)
     return (
-      <div className="text-center py-10">
-        <p className="text-gray-400">
-          You haven't participated in any games yet
-        </p>
+      <div className="text-center py-10 text-gray-400">
+        Loading your games...
       </div>
     );
-  }
+  if (!storeMyGames?.length)
+    return (
+      <div className="text-center py-10 text-gray-400">No games found.</div>
+    );
+
+  const activeGames = storeMyGames.filter(
+    (g) => g.status === GameStatus.Active
+  );
+  const endedGames = storeMyGames.filter((g) => g.status === GameStatus.Ended);
 
   return (
-    <div className="space-y-8">
-      {userGames.active.length > 0 && (
-        <div>
+    <div className="space-y-10">
+      {activeGames.length > 0 && (
+        <section>
           <h3 className="text-xl font-semibold text-white mb-4">
             Active Games
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {userGames.active.map((gameId) => (
-              <GameDataLoader key={gameId.toString()} gameId={gameId} />
+            {activeGames.map((game) => (
+              <GameDataLoader key={game.gameId.toString()} game={game} />
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {userGames.completed.length > 0 && (
-        <div>
+      {endedGames.length > 0 && (
+        <section>
           <h3 className="text-xl font-semibold text-white mb-4">
             Completed Games
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {userGames.completed.map((gameId) => (
-              <GameDataLoader key={gameId.toString()} gameId={gameId} />
+            {endedGames.map((game) => (
+              <GameDataLoader key={game.gameId.toString()} game={game} />
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
 }
 
-function GameDataLoader({ gameId }: { gameId: bigint }) {
-  const { data: gameStatus, isLoading } = useGameStatus(gameId);
-  const [isStakeModalOpen, setIsStakeModalOpen] = useState(false);
-  const [selectedStakeAmount, setSelectedStakeAmount] = useState<bigint | null>(
-    null
-  );
-  const router = useRouter();
+// ---------- Game Data Loader ----------
+function GameDataLoader({ game }: { game: any }) {
+  const { data: fullGame, isLoading } = useGameStatus(game.gameId);
 
-  if (isLoading || !gameStatus) {
+  if (isLoading || !fullGame)
     return <div className="bg-[#191F57CF] p-6 rounded-lg animate-pulse h-48" />;
-  }
-
-  const typedGameStatus = gameStatus as {
-    creator: `0x${string}`;
-    stakeAmount: bigint;
-    playerCount: number;
-    status: GameStatus;
-  };
-
-  const handleGameSelect = (stakeAmount: bigint) => {
-    setSelectedStakeAmount(stakeAmount);
-    setIsStakeModalOpen(true);
-  };
 
   return (
-    <>
-      <GameCard
-        gameId={gameId}
-        creator={typedGameStatus.creator}
-        stakeAmount={typedGameStatus.stakeAmount}
-        playerCount={typedGameStatus.playerCount}
-        status={typedGameStatus.status}
-        onGameSelect={handleGameSelect}
-      />
-      {selectedStakeAmount && (
-        <StakeModal
-          isOpen={isStakeModalOpen}
-          onClose={() => {
-            setIsStakeModalOpen(false);
-            setSelectedStakeAmount(null);
-          }}
-          stakeAmount={`${formatEther(selectedStakeAmount)} CORE`}
-          onSuccess={() => {
-            router.push(`/GameScreen/${gameId}`);
-          }}
-        />
-      )}
-    </>
+    <GameCard
+      gameId={fullGame.gameId}
+      creator={fullGame.creator as `0x${string}`}
+      stake={fullGame.stake}
+      playerCount={fullGame.playerCount}
+      status={fullGame.status}
+    />
   );
 }

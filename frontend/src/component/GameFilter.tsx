@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { GameStatus } from "@/hooks/useGame";
+import { GameStatus } from "@/lib/contractCalls";
 
 export interface FilterOptions {
   status?: GameStatus;
