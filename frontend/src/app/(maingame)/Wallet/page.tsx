@@ -1,6 +1,6 @@
 "use client";
 
-import BackgroundImgWithLogo from "@/component/BackgroundImgWithLogo";
+import BackgroundImg from "@/component/BackgroundImg";
 import WalletDisplay from "@/component/WalletDisplay";
 import { Open_Sans } from "next/font/google";
 
@@ -8,7 +8,7 @@ const openSans = Open_Sans({ subsets: ["latin"], weight: ["400", "700"] });
 
 const Wallet: React.FC = () => {
   return (
-    <BackgroundImgWithLogo>
+    <BackgroundImg>
       <div className="mb-[50px]">
         <WalletDisplay />
       </div>
@@ -18,12 +18,9 @@ const Wallet: React.FC = () => {
       >
         <span className="text-lg font-bold text-start">Play & Win Rewards</span>
         <p className="text-sm leading-relaxed">
-          Lorem ipsum dolor sit amet consectetur adipiscing elit Ut et massa mi.
-          Aliquam in hendrerit urna. Pellentesque sit amet sapien fringilla,
-          mattis ligula consectetur, ultrices mauris. Maecenas vitae mattis
-          tellus. Nullam quis imperdiet augue. Vestibulum auctor ornare leo, non
-          susgna id scelerisque vestibulum, nulla ex pharetra sapien,
-          tempodictum tellus vitae, euismod neque. Nulla.
+          Enter the Breevs arena — a high-stakes elimination game where players
+          risk and win tokens through luck and strategy. Connect your Stacks
+          wallet to join or host a match on the testnet.
         </p>
       </div>
 
@@ -37,7 +34,7 @@ const Wallet: React.FC = () => {
         Having Trouble?
         <div className="absolute inset-0 bg-gradient-to-t from-white/20 to-transparent rounded-full pointer-events-none"></div>
       </div>
-    </BackgroundImgWithLogo>
+    </BackgroundImg>
   );
 };
 

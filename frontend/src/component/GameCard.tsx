@@ -3,57 +3,82 @@
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import Logo from "@/assets/RR_LOGO_1.png";
-import { GameStatus } from "@/lib/contractCalls";
+import { GameStatus, GameInfo } from "@/lib/contractCalls";
+import { useIsGameCreator } from "@/hooks/useGame";
 import { motion } from "framer-motion";
 import { useGameStore } from "@/store/gameStore";
+import { useAccount } from "@micro-stacks/react";
 
 interface GameCardProps {
-  gameId: bigint;
-  creator: string;
-  stake: bigint;
-  playerCount: number;
-  status: GameStatus | number;
+  game: GameInfo;
   isUserGame?: boolean;
   error?: string;
   clearError?: () => void;
 }
 
 export default function GameCard({
-  gameId,
-  creator,
-  stake,
-  playerCount,
-  status,
+  game,
   isUserGame,
   error,
   clearError,
 }: GameCardProps) {
   const router = useRouter();
-  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
+  const { stxAddress } = useAccount();
+  const { setSelectedGame, restrictPlayerActions, restrictCreatorActions } =
+    useGameStore();
+  const { data: isGameCreator } = useIsGameCreator(
+    game.gameId,
+    stxAddress || ""
+  );
 
-  const handleAction = () => {
-    if (status === GameStatus.Active && !isUserGame) {
-      
-      setSelectedGame({ gameId, creator, stake, playerCount, status } as any);
-    } else {
-      router.push(`/GameScreen/${gameId}`);
+  const handleAction = async () => {
+    if (!stxAddress) {
+      alert("Please connect your wallet to interact.");
+      return;
+    }
+
+    const gameIdStr = game.gameId.toString();
+
+    if (restrictPlayerActions(stxAddress)) {
+      const currentGame = useGameStore.getState().currentPlayerGame;
+      if (currentGame && currentGame.gameId !== game.gameId) {
+        alert("You are already in another game. Please complete it first.");
+        router.push(`/GameScreen/${currentGame.gameId.toString()}`);
+        return;
+      }
+    }
+    if (restrictCreatorActions(stxAddress)) {
+      const currentCreatorGame = useGameStore.getState().currentCreatorGame;
+      if (currentCreatorGame && currentCreatorGame.gameId !== game.gameId) {
+        alert("You have an active created game. Please complete it first.");
+        router.push(`/GameScreen/${currentCreatorGame.gameId.toString()}`);
+        return;
+      }
+    }
+
+    if (isGameCreator || isUserGame || game.status !== GameStatus.Active) {
+      router.push(`/GameScreen/${gameIdStr}`);
+    } else if (game.status === GameStatus.Active && !isUserGame) {
+      setSelectedGame(game);
     }
   };
 
-  const stakeValue = typeof stake === "bigint" ? stake : BigInt(stake ?? 0);
-  const stakeInSTX = Number(stakeValue) / 1_000_000;
+  const stakeInSTX = Number(game.stake) / 1_000_000;
 
   const shortCreator =
-    creator && creator.startsWith("ST")
-      ? `${creator.slice(0, 6)}...${creator.slice(-4)}`
+    game.creator && game.creator.startsWith("ST")
+      ? `${game.creator.slice(0, 6)}...${game.creator.slice(-4)}`
       : "Unknown";
 
   const getStatusLabel = (s: GameStatus | number) => {
+    if (isGameCreator) {
+      return "Creator";
+    }
     switch (s) {
       case GameStatus.Active:
-        return "In Progress";
+        return "Active";
       case GameStatus.InProgress:
-        return "Pending";
+        return "In Progress";
       case GameStatus.Ended:
         return "Ended";
       default:
@@ -61,56 +86,73 @@ export default function GameCard({
     }
   };
 
+  const getStatusStyles = (s: GameStatus | number) => {
+    if (isGameCreator) {
+      return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+    }
+    return s === GameStatus.Active
+      ? "bg-green-500/20 text-green-400 border-green-500/30"
+      : s === GameStatus.InProgress
+      ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+      : "bg-red-500/20 text-red-400 border-red-500/30";
+  };
+
+  const adjustedPlayerCount = game.players.includes(game.creator)
+    ? game.playerCount - 1
+    : game.playerCount;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      whileHover={{ scale: 1.02 }}
+      whileHover={{ scale: 1.03, y: -5 }}
+      whileTap={{ scale: 0.98 }}
       onClick={handleAction}
-      className="bg-[#191F57CF] p-4 sm:p-5 border border-gray-700 rounded-xl shadow-lg hover:shadow-red-500/20 transition-all duration-300 cursor-pointer w-full"
+      className="bg-gradient-to-br from-[#191F57]/90 to-[#0a1529]/90 backdrop-blur-md p-3 sm:p-5 border border-gray-700/50 rounded-2xl shadow-xl hover:shadow-2xl hover:shadow-red-500/20 transition-all duration-300 cursor-pointer w-full group relative overflow-hidden"
     >
-      <div className="flex flex-col h-full justify-between gap-3 sm:gap-4">
-        {/* Creator + Status */}
-        <div className="flex justify-between items-center gap-2">
-          <div className="text-white min-w-0">
-            <p className="text-[10px] sm:text-xs text-gray-400">Created by</p>
-            <p className="text-xs sm:text-sm font-semibold truncate max-w-[120px]">
+      {/* Gradient overlay on hover */}
+      <div className="absolute inset-0 bg-gradient-to-br from-red-500/0 to-purple-500/0 group-hover:from-red-500/5 group-hover:to-purple-500/5 transition-all duration-300 rounded-2xl pointer-events-none" />
+
+      <div className="flex flex-col h-full justify-between gap-3 sm:gap-3 relative z-10">
+        {/* Header */}
+        <div className="flex justify-between items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
+              Created by
+            </p>
+            <p className="text-xs sm:text-sm font-semibold text-white font-mono truncate bg-white/5 px-2 py-1 rounded border border-white/10 max-w-[120px]">
               {shortCreator}
             </p>
           </div>
 
           <div
-            className={`flex-shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full flex items-center justify-center ${
-              status === GameStatus.Active
-                ? "bg-green-500/20 text-green-400"
-                : status === GameStatus.Ended
-                ? "bg-red-500/20 text-red-400"
-                : "bg-gray-500/20 text-gray-300"
-            }`}
+            className={`flex-shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full flex items-center gap-1 border backdrop-blur-sm ${getStatusStyles(
+              game.status
+            )}`}
           >
             <span className="text-[9px] sm:text-xs truncate max-w-[60px] sm:max-w-[100px]">
-              {getStatusLabel(status)}
+              {getStatusLabel(game.status)}
             </span>
           </div>
         </div>
 
-        {/* Game Logo */}
+        {/* Logo */}
+
         <div className="flex justify-center">
           <Image
             src={Logo}
             alt="Game Icon"
-            className="hidden sm:block w-20 sm:w-28 md:w-32 h-auto"
+            className="hidden sm:block w-20 h-auto"
           />
         </div>
 
-        {/* Stake Info */}
-        <div className="text-center py-1 sm:py-2">
-          <p className="text-xs sm:text-sm text-white font-semibold">
-            Stake and Win
+        <div className="text-center py-1 sm:py-3 bg-gradient-to-r from-red-500/10 via-purple-500/10 to-red-500/10 rounded-xl border border-red-500/20 group-hover:border-red-500/40 transition-all duration-300">
+          <p className="text-xs text-gray-400 mb-1 sm:text-sm font-semibold">
+            Stake to Win
           </p>
-          <p className="text-lg sm:text-2xl font-bold text-red-500">
-            {stakeValue > 0n
+          <p className="text-lg sm:text-2xl font-bold text-[#FF3B3B] drop-shadow-lg">
+            {game.stake > 0n
               ? `${Number(stakeInSTX.toFixed(3))
                   .toString()
                   .replace(/\.?0+$/, "")} STX`
@@ -118,33 +160,38 @@ export default function GameCard({
           </p>
         </div>
 
-        {/* Players + Timer */}
-        <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-2 gap-2 text-center text-[10px] sm:text-sm">
-            <div className="bg-gray-800/50 rounded-lg p-2 sm:p-3">
-              <p className="text-gray-400">Players</p>
-              <p className="text-white font-bold">{playerCount}/6</p>
-            </div>
-            <div className="bg-gray-800/50 rounded-lg p-2 sm:p-3">
-              <p className="text-gray-400">Game ID</p>
-              <p className="text-white font-bold">#{gameId.toString()}</p>
-            </div>
+        {/* Game Stats */}
+        <div className="grid grid-cols-2 gap-3 text-center text-[10px] sm:text-sm">
+          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-1 sm:p-3 border border-white/10 group-hover:bg-white/10 transition-all duration-300">
+            <p className="text-xs text-gray-400">Players</p>
+            <p className="text-md sm:text-lg font-bold text-white text-center">
+              {adjustedPlayerCount}
+              <span className="text-gray-400 text-sm">/5</span>
+            </p>
+          </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-1 sm:p-3 border border-white/10 group-hover:bg-white/10 transition-all duration-300">
+            <p className="text-xs text-gray-400">Game ID</p>
+            <p className="text-md sm:text-lg font-bold text-white text-center">
+              #{game.gameId.toString()}
+            </p>
           </div>
         </div>
 
-        {/* Error */}
+        {/* Error Message */}
         {error && clearError && (
-          <div className="mt-2 p-2 bg-red-900/50 rounded text-xs sm:text-sm text-red-400">
-            {error}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                clearError();
-              }}
-              className="ml-2 text-red-300 hover:text-red-200"
-            >
-              ✕
-            </button>
+          <div className="mt-2 p-3 bg-red-900/50 border border-red-500/50 rounded-lg backdrop-blur-sm">
+            <div className="flex justify-between items-start gap-2">
+              <p className="text-xs text-red-300 flex-1">{error}</p>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearError();
+                }}
+                className="text-red-300 hover:text-red-200 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
           </div>
         )}
       </div>

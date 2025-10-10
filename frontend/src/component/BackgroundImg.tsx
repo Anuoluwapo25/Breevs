@@ -9,12 +9,18 @@ interface BackgroundImgProps {
 
 const BackgroundImg: React.FC<BackgroundImgProps> = ({ children }) => {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen relative h-screen w-screen bg-[#030B1F]">
+    <div className="relative flex flex-col items-center justify-center min-h-screen w-screen overflow-hidden bg-[#030B1F]">
       <div
-        className="absolute inset-0 bg-contain bg-center bg-no-repeat opacity-12"
-        style={{ backgroundImage: `url(${Man.src})` }}
+        className="absolute inset-0 bg-contain bg-center bg-no-repeat opacity-10 pointer-events-none"
+        style={{
+          backgroundImage: `url(${Man.src})`,
+          zIndex: 0,
+        }}
       ></div>
-      {children}
+
+      <div className="relative z-10 w-full h-full flex flex-col items-center justify-center">
+        {children}
+      </div>
     </div>
   );
 };

@@ -7,6 +7,11 @@ import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
 import { useJoinGame } from "@/hooks/useGame";
 import { useGameStore } from "@/store/gameStore";
+import {
+  showErrorToast,
+  showSuccessToast,
+  showTransactionToast,
+} from "@/component/Toast";
 
 interface StakeModalProps {
   isOpen: boolean;
@@ -14,7 +19,7 @@ interface StakeModalProps {
   onSuccess?: () => void;
 }
 
-const StakeModal: React.FC<StakeModalProps> = ({
+export const StakeModal: React.FC<StakeModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
@@ -22,16 +27,11 @@ const StakeModal: React.FC<StakeModalProps> = ({
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
-
   const { mutateAsync: joinGameMutation } = useJoinGame();
+  const { selectedGame, setSelectedGame, setCurrentPlayerGame } =
+    useGameStore();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [txId, setTxId] = useState<string | null>(null);
-  const [showManualProceed, setShowManualProceed] = useState(false);
   const isMounted = useRef(true);
-
-  const selectedGame = useGameStore((state) => state.selectedGame);
-  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
 
   const stake = selectedGame?.stake ?? 0n;
   const gameId = selectedGame?.gameId;
@@ -45,118 +45,194 @@ const StakeModal: React.FC<StakeModalProps> = ({
     };
   }, []);
 
-  console.log(
-    "🚀 StakeModal received stake:",
-    stake?.toString(),
-    "gameId:",
-    gameId
-  );
-
   const handleStake = async () => {
+    // Client-side validation
+    if (!isSignedIn || !stxAddress) {
+      showErrorToast("Please connect your Stacks wallet first", "Wallet Error");
+      return;
+    }
+
+    if (!gameId) {
+      showErrorToast("Game ID is missing", "Invalid Game");
+      return;
+    }
+
+    setIsProcessing(true);
+
     try {
-      setError(null);
-      setIsProcessing(true);
-      setTxId(null);
+      // Show pending transaction toast
+      showTransactionToast("pending", "pending", undefined);
 
-      if (!isSignedIn || !stxAddress) {
-        setError("⚠ Please connect your Stacks wallet first");
-        setIsProcessing(false);
-        return;
-      }
+      const { txId } = await joinGameMutation({
+        gameId,
+        stake: stakeValue,
+        stxAddress,
+      });
 
-      if (!gameId) {
-        setError("Game ID is missing");
-        setIsProcessing(false);
-        return;
-      }
+      // Show success toast with explorer link
+      showTransactionToast(
+        txId,
+        "success",
+        `https://explorer.stacks.co/txid/${txId}?chain=testnet`
+      );
 
-      const tx = await joinGameMutation({ gameId });
-      console.log("Join game transaction:", tx);
+      setCurrentPlayerGame(selectedGame);
 
-      setTxId(tx.txId);
+      showSuccessToast(`Successfully joined Game #${gameId}!`, "Game Joined");
 
-      onClose();
+      // Reset state before closing
+      setIsProcessing(false);
       setSelectedGame(null);
+      onClose();
+
       if (onSuccess) {
         onSuccess();
       } else {
         router.push(`/GameScreen/${gameId}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Stake error:", err);
-      if (isMounted.current) {
-        setError(err instanceof Error ? err.message : "Failed to stake");
-        setIsProcessing(false);
-      }
+
+      // Reset processing state immediately on error
+      setIsProcessing(false);
+
+      // Show error toast
+      showErrorToast(
+        err.message || "Failed to join game. Please try again.",
+        "Join Game Error"
+      );
+
+      // Don't close modal on error, let user try again or manually close
+      // If you want to close on error, uncomment the lines below:
+      // setSelectedGame(null);
+      // onClose();
     }
   };
 
-  const handleManualProceed = () => {
-    onClose();
-    setSelectedGame(null);
-    router.push(`/GameScreen/${gameId}`);
-  };
-
+  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setError(null);
       setIsProcessing(false);
-      setTxId(null);
-      setShowManualProceed(false);
+    }
+  }, [isOpen]);
+
+  // Reset state when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setIsProcessing(false);
     }
   }, [isOpen]);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
-      <div className="bg-[#0B1445] text-white text-center p-6 rounded-2xl">
+      <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-6 sm:p-8 rounded-2xl border border-red-500/20 max-w-md w-full">
         <GlowingEffect className="top-[63px] left-[47px]" />
-        <h2 className="text-[25px] font-bold mb-4">Stake to Join</h2>
 
-        {/* ✅ Fixed display logic */}
-        <div className="bg-white text-[#0B1445] py-1 px-6 rounded-lg mb-10 inline-block font-bold">
-          
-          {stakeValue > 0n
-            ? `${Number(stakeInSTX.toFixed(3))
-                .toString()
-                .replace(/\.?0+$/, "")} STX`
-            : "Free Entry"}
+        {/* Header */}
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-8 w-8 text-green-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-bold mb-2">Join Game</h2>
+          <p className="text-sm text-gray-400">Stake to enter and compete</p>
         </div>
 
-        {txId && (
-          <p className="text-blue-400 text-xs mb-2">Transaction: {txId}</p>
-        )}
-
-        {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
-
-        {!isSignedIn && (
-          <p className="text-yellow-400 text-sm mb-2">
-            Please connect your wallet to proceed
+        {/* Stake Display */}
+        <div className="bg-gradient-to-r from-red-500/20 via-purple-500/20 to-red-500/20 border border-red-500/30 rounded-xl p-6 mb-6">
+          <p className="text-sm text-gray-400 mb-2 text-center">
+            Required Stake
           </p>
-        )}
-
-        {showManualProceed && (
-          <div className="mb-4 p-3 bg-yellow-900 rounded-lg">
-            <p className="text-yellow-300 text-sm mb-2">
-              Transaction is taking longer than expected. If it was confirmed in
-              your wallet, you can proceed manually.
+          <div className="text-center">
+            <p className="text-4xl sm:text-5xl font-bold text-[#FF3B3B] drop-shadow-lg">
+              {stakeValue > 0n
+                ? `${Number(stakeInSTX.toFixed(3))
+                    .toString()
+                    .replace(/\.?0+$/, "")} STX`
+                : "Free Entry"}
             </p>
-            <button
-              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-4 rounded text-sm"
-              onClick={handleManualProceed}
-            >
-              Proceed to Game
-            </button>
+          </div>
+        </div>
+
+        {/* Game Info */}
+        {selectedGame && (
+          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-4 mb-6 border border-white/10">
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-gray-400">Game ID:</span>
+              <span className="text-sm font-bold text-white">
+                #{selectedGame.gameId.toString()}
+              </span>
+            </div>
+            <div className="flex justify-between items-center mt-2">
+              <span className="text-sm text-gray-400">Players:</span>
+              <span className="text-sm font-bold text-white">
+                {selectedGame.players.includes(selectedGame.creator)
+                  ? selectedGame.playerCount - 1
+                  : selectedGame.playerCount}
+                /5
+              </span>
+            </div>
           </div>
         )}
 
+        {/* Wallet Warning */}
+        {!isSignedIn && (
+          <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
+            <p className="text-sm text-yellow-300 text-center">
+              Please connect your wallet to proceed
+            </p>
+          </div>
+        )}
+
+        {/* Action Button */}
         <button
-          className={`bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-full w-full 
-            shadow-[0_4px_0_#474d76] hover:shadow-[0_4px_0_#474d76] active:translate-y-1 transition-all mt-6
-            ${isProcessing ? "opacity-70 cursor-not-allowed" : ""}`}
+          className={`w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 shadow-lg hover:shadow-green-500/50 ${
+            isProcessing || !isSignedIn
+              ? "opacity-50 cursor-not-allowed"
+              : "hover:scale-105"
+          }`}
           onClick={handleStake}
           disabled={isProcessing || !isSignedIn}
         >
-          {isProcessing ? "Processing..." : "Proceed to STAKE"}
+          {isProcessing ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg
+                className="animate-spin h-5 w-5"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              Processing...
+            </span>
+          ) : (
+            "Stake & Join Game"
+          )}
         </button>
       </div>
     </Modal>
