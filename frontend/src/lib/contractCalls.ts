@@ -5,13 +5,18 @@ import {
   uintCV,
   cvToJSON,
   cvToValue,
+  ClarityType,
+  ClarityValue,
   principalCV,
   fetchCallReadOnlyFunction,
+  standardPrincipalCV,
 } from "@stacks/transactions";
 import { STACKS_TESTNET } from "@stacks/network";
 import { clarityToJSON } from "@/utils/clarity";
 import { waitForTxConfirmation } from "@/utils/waitForTx";
 import { buildStxPostConditions } from "@/utils/postConditionHelper";
+import { mapContractError } from "@/utils/contractErrors";
+import { showTransactionToast, showErrorToast } from "@/component/Toast";
 
 export enum GameStatus {
   Active = 0,
@@ -19,15 +24,54 @@ export enum GameStatus {
   Ended = 2,
 }
 
+interface GameInfoTuple {
+  creator: { type: ClarityType.PrincipalStandard; value: string };
+  players: {
+    type: ClarityType.List;
+    value: { type: ClarityType.PrincipalStandard; value: string }[];
+  };
+  stake: { type: ClarityType.UInt; value: string | number };
+  "prize-pool": { type: ClarityType.UInt; value: string | number };
+  status: { type: ClarityType.UInt; value: string | number };
+  "round-duration": { type: ClarityType.UInt; value: string | number };
+  "round-end": { type: ClarityType.UInt; value: string | number };
+  "current-round": { type: ClarityType.UInt; value: string | number };
+  winner:
+    | { type: ClarityType.OptionalNone }
+    | {
+        type: ClarityType.OptionalSome;
+        value: { type: ClarityType.PrincipalStandard; value: string };
+      };
+  "total-rounds": { type: ClarityType.UInt; value: string | number };
+}
+
 export interface GameInfo {
   gameId: bigint;
   creator: string;
   stake: bigint;
-  status: GameStatus;
   playerCount: number;
+  status: GameStatus;
   players: string[];
   prizePool: bigint;
   winner: string | null;
+  currentRound: number;
+  roundEnd: bigint;
+  roundDuration: bigint;
+  totalRounds: number;
+}
+
+export interface PlayerData {
+  eliminated: boolean;
+  eliminationRound: number;
+  currentRound: number;
+  roundEnd: number;
+}
+
+export interface UserStats {
+  gamesPlayed: number;
+  gamesWon: number;
+  totalWinnings: bigint;
+  totalStaked: bigint;
 }
 
 const CONTRACT_ADDRESS =
@@ -37,262 +81,533 @@ const CONTRACT_NAME = process.env.NEXT_PUBLIC_CONTRACT_NAME || "Breevs-v2";
 const APP_DETAILS = { name: "Breevs", icon: "/favicon.ico" };
 
 // =============================
-//  WRITE FUNCTIONS
+// WRITE FUNCTIONS
 // =============================
+
 export async function createGame(
   stake: bigint,
   duration: bigint,
   stxAddress: string
-): Promise<{ txId: string; gameId: bigint | null }> {
+): Promise<{ txId: string; gameId: bigint }> {
   return new Promise(async (resolve, reject) => {
-    if (!stxAddress) return reject(new Error("No wallet address connected"));
+    if (!stxAddress) {
+      const error = new Error("No wallet address connected");
+      return reject(error);
+    }
 
-    const pcResult = await buildStxPostConditions(stxAddress, stake);
-    const options: ContractCallOptions = {
-      contractAddress: CONTRACT_ADDRESS,
-      contractName: CONTRACT_NAME,
-      functionName: "create-game",
-      functionArgs: [uintCV(stake), uintCV(duration)],
-      network: STACKS_TESTNET,
-      appDetails: APP_DETAILS,
-      postConditionMode: pcResult.postConditionMode,
-      ...("postConditions" in pcResult
-        ? { postConditions: pcResult.postConditions }
-        : {}),
+    try {
+      const pcResult = await buildStxPostConditions(stxAddress, stake);
+      const options: ContractCallOptions = {
+        contractAddress: CONTRACT_ADDRESS,
+        contractName: CONTRACT_NAME,
+        functionName: "create-game",
+        functionArgs: [uintCV(stake), uintCV(duration)],
+        network: STACKS_TESTNET,
+        appDetails: APP_DETAILS,
+        postConditionMode: pcResult.postConditionMode,
+        ...("postConditions" in pcResult
+          ? { postConditions: pcResult.postConditions }
+          : {}),
+        onFinish: async (data: any) => {
+          try {
+            const txId = data?.txId;
+            if (!txId) throw new Error("Missing txId");
 
-      onFinish: async (data: any) => {
-        console.log("✅ createGame TX:", data);
-        const txId = data?.txId;
-        if (!txId) return reject(new Error("Missing txId"));
+            const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+            if (!confirmed) {
+              throw new Error("Transaction not confirmed");
+            }
 
-        // wait for confirmation
-        const confirmed = await waitForTxConfirmation(txId, 60, 3000);
-        if (!confirmed) return reject(new Error("Transaction not confirmed"));
+            const gameCounter = await fetchCallReadOnlyFunction({
+              contractAddress: CONTRACT_ADDRESS,
+              contractName: CONTRACT_NAME,
+              functionName: "get-total-games",
+              functionArgs: [],
+              senderAddress: CONTRACT_ADDRESS,
+              network: STACKS_TESTNET,
+            });
+            const gameId = BigInt(cvToValue(gameCounter));
 
-        // refresh game list and resolve new id if found
-        // const games = await getAllGames();
-        // const latest = games[games.length - 1];
-        // resolve({ txId, gameId: latest?.gameId ?? null });
-        resolve({ txId, gameId: null });
-      },
+            resolve({ txId, gameId });
+          } catch (error) {
+            const mappedError = mapContractError(error);
+            reject(new Error(mappedError.message));
+          }
+        },
+        onCancel: () => {
+          const error = new Error("User canceled game creation");
+          reject(error);
+        },
+      };
 
-      onCancel: () => reject(new Error("User canceled createGame")),
-    };
-
-    // open wallet UI
-    void openContractCall(options);
+      openContractCall(options);
+    } catch (error) {
+      const mappedError = mapContractError(error);
+      reject(new Error(mappedError.message));
+    }
   });
 }
 
-export async function getAllGames(): Promise<GameInfo[]> {
-  try {
-    const totalGamesCV = await fetchCallReadOnlyFunction({
-      contractAddress: CONTRACT_ADDRESS,
-      contractName: CONTRACT_NAME,
-      functionName: "get-total-games",
-      functionArgs: [],
-      senderAddress: CONTRACT_ADDRESS,
-      network: STACKS_TESTNET,
-    });
-
-    const totalGames = Number(cvToValue(totalGamesCV));
-    if (!totalGames) {
-      return [];
+export async function joinGame(
+  gameId: bigint,
+  stake: bigint,
+  stxAddress: string
+): Promise<{ txId: string }> {
+  return new Promise(async (resolve, reject) => {
+    if (!stxAddress) {
+      const error = new Error("No wallet address connected");
+      reject(error);
+      return;
     }
 
-    const games: GameInfo[] = [];
-
-    for (let i = 1; i <= totalGames; i++) {
-      try {
-        const gameCV = await fetchCallReadOnlyFunction({
-          contractAddress: CONTRACT_ADDRESS,
-          contractName: CONTRACT_NAME,
-          functionName: "get-game-info",
-          functionArgs: [uintCV(i)],
-          senderAddress: CONTRACT_ADDRESS,
-          network: STACKS_TESTNET,
-        });
-
-        if (!gameCV || gameCV.type === "none") {
-          console.warn(`⚠ Game ${i} returned null or none`);
-          continue;
-        }
-
-        const gameData = clarityToJSON(gameCV);
-        if (!gameData || !gameData.creator) {
-          console.warn(`⚠ Game ${i} missing creator — skipping`);
-          continue;
-        }
-
-        games.push({
-          gameId: BigInt(i),
-          creator: gameData.creator,
-          stake: BigInt(gameData.stake ?? 0n),
-          prizePool: BigInt(gameData["prize-pool"] ?? 0n),
-          status: Number(gameData.status ?? 0),
-          players: Array.isArray(gameData.players) ? gameData.players : [],
-          playerCount: Array.isArray(gameData.players)
-            ? gameData.players.length
-            : 0,
-          winner: gameData.winner ?? null,
-        });
-      } catch (innerErr) {
-        console.warn(`⚠ Skipping game ${i}:`, innerErr);
+    try {
+      const gameInfo = await getGameInfo(gameId);
+      if (gameInfo.stake !== stake) {
+        const error = new Error(
+          "Stake amount does not match game requirements"
+        );
+        throw error;
       }
-    }
+      const pcResult = await buildStxPostConditions(gameInfo.creator, stake);
 
-    return games;
-  } catch (err: any) {
-    console.error("❌ getAllGames failed:", err.message || err);
-    return [];
-  }
+      const options: ContractCallOptions = {
+        contractAddress: CONTRACT_ADDRESS,
+        contractName: CONTRACT_NAME,
+        functionName: "join-game",
+        functionArgs: [uintCV(gameId), uintCV(stake)],
+        network: STACKS_TESTNET,
+        appDetails: APP_DETAILS,
+        postConditionMode: pcResult.postConditionMode,
+        ...("postConditions" in pcResult
+          ? { postConditions: pcResult.postConditions }
+          : {}),
+        onFinish: async (data) => {
+          try {
+            const txId = data?.txId;
+            if (!txId) throw new Error("Missing txId");
+
+            const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+            if (!confirmed) {
+              throw new Error("Transaction not confirmed");
+            }
+
+            resolve({ txId });
+          } catch (error) {
+            const mappedError = mapContractError(error);
+            reject(new Error(mappedError.message));
+          }
+        },
+        onCancel: () => {
+          const error = new Error("User canceled join game");
+          reject(error);
+        },
+      };
+      openContractCall(options);
+    } catch (error) {
+      const mappedError = mapContractError(error);
+      reject(new Error(mappedError.message));
+    }
+  });
 }
 
-export function joinGame(gameId: bigint): Promise<{ txId: string }> {
+export async function startGame(gameId: bigint): Promise<{ txId: string }> {
   return new Promise((resolve, reject) => {
     const options: ContractCallOptions = {
       contractAddress: CONTRACT_ADDRESS,
       contractName: CONTRACT_NAME,
-      functionName: "join-game",
+      functionName: "start-game",
       functionArgs: [uintCV(gameId)],
       network: STACKS_TESTNET,
       appDetails: APP_DETAILS,
-      onFinish: (data) => resolve({ txId: data.txId }),
-      onCancel: () => reject(new Error("User canceled joinGame")),
+      onFinish: async (data) => {
+        try {
+          const txId = data?.txId;
+          if (!txId) throw new Error("Missing txId");
+
+          const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+          if (!confirmed) throw new Error("Transaction not confirmed");
+
+          resolve({ txId });
+        } catch (error) {
+          reject(new Error(mapContractError(error).message));
+        }
+      },
+      onCancel: () => reject(new Error("User canceled startGame")),
     };
     openContractCall(options);
   });
 }
 
-export async function startGame(gameId: bigint) {
-  const options: ContractCallOptions = {
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "start-game",
-    functionArgs: [uintCV(gameId)],
-    network: STACKS_TESTNET,
-    appDetails: APP_DETAILS,
-    onFinish: (data) => console.log("✅ startGame TX:", data),
-    onCancel: () => console.log("❌ startGame cancelled"),
-  };
-  openContractCall(options);
+export async function spin(
+  gameId: bigint
+): Promise<{ spinTX: { txId: string; value: string } }> {
+  return new Promise((resolve, reject) => {
+    const options: ContractCallOptions = {
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "spin",
+      functionArgs: [uintCV(gameId)],
+      network: STACKS_TESTNET,
+      appDetails: APP_DETAILS,
+      onFinish: async (data) => {
+        try {
+          const txId = data?.txId;
+          if (!txId) throw new Error("Missing txId");
+
+          const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+          if (!confirmed) throw new Error("Transaction not confirmed");
+
+          const txResult = await fetchTransactionResult(txId);
+          const value = txResult?.value?.value || "";
+          resolve({ spinTX: { txId, value } });
+        } catch (error) {
+          reject(new Error(mapContractError(error).message));
+        }
+      },
+      onCancel: () => reject(new Error("User canceled spin")),
+    };
+    openContractCall(options);
+  });
 }
 
-export async function spin(gameId: bigint) {
-  const options: ContractCallOptions = {
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "spin",
-    functionArgs: [uintCV(gameId)],
-    network: STACKS_TESTNET,
-    appDetails: APP_DETAILS,
-    onFinish: (data) => console.log("✅ spin TX:", data),
-    onCancel: () => console.log("❌ spin cancelled"),
-  };
-  openContractCall(options);
+export async function advanceRound(gameId: bigint): Promise<{ txId: string }> {
+  return new Promise((resolve, reject) => {
+    const options: ContractCallOptions = {
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "advance-round",
+      functionArgs: [uintCV(gameId)],
+      network: STACKS_TESTNET,
+      appDetails: APP_DETAILS,
+      onFinish: async (data) => {
+        try {
+          const txId = data?.txId;
+          if (!txId) throw new Error("Missing txId");
+
+          const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+          if (!confirmed) throw new Error("Transaction not confirmed");
+
+          resolve({ txId });
+        } catch (error) {
+          reject(new Error(mapContractError(error).message));
+        }
+      },
+      onCancel: () => reject(new Error("User canceled advanceRound")),
+    };
+    openContractCall(options);
+  });
 }
 
-export async function advanceRound(gameId: bigint) {
-  const options: ContractCallOptions = {
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "advance-round",
-    functionArgs: [uintCV(gameId)],
-    network: STACKS_TESTNET,
-    appDetails: APP_DETAILS,
-    onFinish: (data) => console.log("✅ advanceRound TX:", data),
-    onCancel: () => console.log("❌ advanceRound cancelled"),
-  };
-  openContractCall(options);
-}
+export async function claimPrize(gameId: bigint): Promise<{ txId: string }> {
+  return new Promise((resolve, reject) => {
+    const options: ContractCallOptions = {
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "claim-prize",
+      functionArgs: [uintCV(gameId)],
+      network: STACKS_TESTNET,
+      appDetails: APP_DETAILS,
+      onFinish: async (data) => {
+        try {
+          const txId = data?.txId;
+          if (!txId) throw new Error("Missing txId");
 
-export async function claimPrize(gameId: bigint) {
-  const options: ContractCallOptions = {
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "claim-prize",
-    functionArgs: [uintCV(gameId)],
-    network: STACKS_TESTNET,
-    appDetails: APP_DETAILS,
-    onFinish: (data) => console.log("✅ claimPrize TX:", data),
-    onCancel: () => console.log("❌ claimPrize cancelled"),
-  };
-  openContractCall(options);
+          const confirmed = await waitForTxConfirmation(txId, 60, 3000);
+          if (!confirmed) throw new Error("Transaction not confirmed");
+
+          resolve({ txId });
+        } catch (error) {
+          reject(new Error(mapContractError(error).message));
+        }
+      },
+      onCancel: () => reject(new Error("User canceled claimPrize")),
+    };
+    openContractCall(options);
+  });
 }
 
 // =============================
-//  READ FUNCTIONS
+// READ FUNCTIONS
 // =============================
+
+export async function getTotalGames(): Promise<bigint> {
+  try {
+    const result = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "get-total-games",
+      functionArgs: [],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
+    return BigInt(cvToValue(result));
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
+  }
+}
 
 export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
-  const result = await fetchCallReadOnlyFunction({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "get-game-info",
-    functionArgs: [uintCV(gameId)],
-    network: STACKS_TESTNET,
-    senderAddress: CONTRACT_ADDRESS,
-  });
+  try {
+    const result: ClarityValue = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "get-game-info",
+      functionArgs: [uintCV(gameId)],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
 
-  const clarityData = clarityToJSON(result);
+    // Check if the result is none (game not found)
+    if (result.type === ClarityType.OptionalNone) {
+      throw new Error(`Game ${gameId} not found`);
+    }
 
-  const winner =
-    clarityData.winner && clarityData.winner !== "none"
-      ? clarityData.winner
-      : null;
+    // Ensure result is an optional some with a tuple
+    if (
+      result.type !== ClarityType.OptionalSome ||
+      !result.value ||
+      result.value.type !== ClarityType.Tuple
+    ) {
+      throw new Error(
+        `Invalid response structure for gameId ${gameId}: expected optional tuple`
+      );
+    }
 
-  return {
-    gameId,
-    creator: clarityData.creator,
-    stake: BigInt(clarityData.stake || 0),
-    status: Number(clarityData.status) as GameStatus,
-    playerCount: Number(clarityData.players?.length ?? 0),
-    players: clarityData.players ?? [],
-    prizePool: BigInt(clarityData["prize-pool"] || 0),
-    winner,
-  };
+    // Deserialize the tuple
+    const jsonData = cvToJSON(result.value);
+
+    // Extract the tuple fields from jsonData.value
+    const data: GameInfoTuple = jsonData.value as GameInfoTuple;
+
+    // Validate tuple structure
+    if (!data || typeof data !== "object") {
+      throw new Error(`Invalid tuple data for gameId ${gameId}`);
+    }
+
+    // Helper function to safely convert uint to BigInt
+    const toBigInt = (
+      value: string | number | bigint | undefined,
+      field: string
+    ): bigint => {
+      if (value == null) {
+        throw new Error(`Missing ${field} for gameId ${gameId}`);
+      }
+      try {
+        return BigInt(value);
+      } catch {
+        throw new Error(
+          `Invalid ${field} format for gameId ${gameId}: ${value}`
+        );
+      }
+    };
+
+    // Helper function to safely convert uint to number
+    const toNumber = (
+      value: string | number | bigint | undefined,
+      field: string
+    ): number => {
+      if (value == null) {
+        throw new Error(`Missing ${field} for gameId ${gameId}`);
+      }
+      const num = Number(value);
+      if (isNaN(num)) {
+        throw new Error(
+          `Invalid ${field} format for gameId ${gameId}: ${value}`
+        );
+      }
+      return num;
+    };
+
+    // Extract and validate fields
+    const creator = data.creator?.value;
+    if (!creator || typeof creator !== "string") {
+      throw new Error(`Invalid creator for gameId ${gameId}: ${creator}`);
+    }
+
+    const players = data.players?.value ?? [];
+    if (!Array.isArray(players)) {
+      throw new Error(`Invalid players list for gameId ${gameId}`);
+    }
+    const playerAddresses = players.map((p) => {
+      if (!p.value || typeof p.value !== "string") {
+        throw new Error(
+          `Invalid player address in players list for gameId ${gameId}`
+        );
+      }
+      return p.value;
+    });
+
+    const winner =
+      data.winner.type === "none" ? null : data.winner.value?.value;
+    if (winner != null && typeof winner !== "string") {
+      throw new Error(`Invalid winner format for gameId ${gameId}: ${winner}`);
+    }
+
+    return {
+      gameId,
+      creator,
+      stake: toBigInt(data.stake?.value, "stake"),
+      playerCount: toNumber(players.length, "playerCount"),
+      status: toNumber(data.status?.value, "status") as GameStatus,
+      players: playerAddresses,
+      prizePool: toBigInt(data["prize-pool"]?.value, "prize-pool"),
+      winner,
+      currentRound: toNumber(data["current-round"]?.value, "current-round"),
+      roundEnd: toBigInt(data["round-end"]?.value, "round-end"),
+      roundDuration: toBigInt(data["round-duration"]?.value, "round-duration"),
+      totalRounds: toNumber(data["total-rounds"]?.value, "total-rounds"),
+    };
+  } catch (error) {
+    console.error(`getGameInfo error for gameId ${gameId}:`, error);
+    throw new Error(
+      `Failed to fetch game info for gameId ${gameId}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
 }
 
-export async function getPlayerData(gameId: bigint, player: string) {
-  const result = await fetchCallReadOnlyFunction({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "get-player-game-data",
-    functionArgs: [uintCV(gameId), principalCV(player)],
-    network: STACKS_TESTNET,
-    senderAddress: CONTRACT_ADDRESS,
-  });
-  return clarityToJSON(result);
+export async function getPlayerData(
+  gameId: bigint,
+  player: string
+): Promise<PlayerData> {
+  try {
+    const result = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "get-player-game-data",
+      functionArgs: [uintCV(gameId), principalCV(player)],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
+
+    if (!result || result.type === "none") {
+      throw new Error(`Player data for ${player} in game ${gameId} not found`);
+    }
+
+    const clarityData = clarityToJSON(result);
+    return {
+      eliminated: clarityData.eliminated,
+      eliminationRound: Number(clarityData["elimination-round"]),
+      currentRound: Number(clarityData["current-round"]),
+      roundEnd: Number(clarityData["round-end"]),
+    };
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
+  }
 }
 
-export async function getUserStats(user: string) {
-  const result = await fetchCallReadOnlyFunction({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "get-user-stats",
-    functionArgs: [principalCV(user)],
-    network: STACKS_TESTNET,
-    senderAddress: CONTRACT_ADDRESS,
-  });
-  return clarityToJSON(result);
+export async function getUserStats(user: string): Promise<UserStats> {
+  try {
+    const result = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "get-user-stats",
+      functionArgs: [principalCV(user)],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
+
+    const clarityData = clarityToJSON(result);
+    return {
+      gamesPlayed: Number(clarityData["games-played"]),
+      gamesWon: Number(clarityData["games-won"]),
+      totalWinnings: BigInt(clarityData["total-winnings"]),
+      totalStaked: BigInt(clarityData["total-staked"]),
+    };
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
+  }
 }
 
 export async function getAllGameIds(): Promise<bigint[]> {
-  const counterResponse = await fetchCallReadOnlyFunction({
-    contractAddress: CONTRACT_ADDRESS,
-    contractName: CONTRACT_NAME,
-    functionName: "game-counter",
-    network: STACKS_TESTNET,
-    senderAddress: CONTRACT_ADDRESS,
-    functionArgs: [],
-  });
-
-  const gameCounter = BigInt(cvToJSON(counterResponse).value);
-  const ids: bigint[] = [];
-
-  for (let i = 1n; i <= gameCounter; i++) {
-    ids.push(i);
+  try {
+    const counter = await getTotalGames();
+    const ids: bigint[] = [];
+    for (let i = 1n; i <= counter; i++) {
+      ids.push(i);
+    }
+    return ids;
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
   }
+}
 
-  return ids;
+export async function isPrizeClaimed(
+  gameId: bigint,
+  user: string
+): Promise<boolean> {
+  try {
+    const result = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "is-prize-claimed",
+      functionArgs: [uintCV(gameId), standardPrincipalCV(user)],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
+    return cvToJSON(result).value;
+  } catch (error) {
+    throw new Error(
+      `Failed to check prize claimed: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+export async function isUserInGame(
+  gameId: bigint,
+  user: string
+): Promise<boolean> {
+  try {
+    const result = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "is-user-in-game",
+      functionArgs: [uintCV(gameId), principalCV(user)],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
+    return cvToValue(result);
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
+  }
+}
+
+export async function isGameCreator(
+  gameId: bigint,
+  user: string
+): Promise<boolean> {
+  try {
+    const result = await fetchCallReadOnlyFunction({
+      contractAddress: CONTRACT_ADDRESS,
+      contractName: CONTRACT_NAME,
+      functionName: "is-game-creator",
+      functionArgs: [uintCV(gameId), principalCV(user)],
+      network: STACKS_TESTNET,
+      senderAddress: CONTRACT_ADDRESS,
+    });
+    return cvToValue(result);
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
+  }
+}
+
+// Helper to fetch transaction result (for spin)
+async function fetchTransactionResult(txId: string): Promise<any> {
+  try {
+    const response = await fetch(
+      `https://stacks-node-api.testnet.stacks.co/extended/v1/tx/${txId}`
+    );
+    const tx = await response.json();
+    if (tx.tx_status !== "success") {
+      throw new Error(
+        `Transaction ${txId} failed: ${tx.tx_result?.repr || "Unknown error"}`
+      );
+    }
+    return tx?.tx_result;
+  } catch (error) {
+    throw new Error(mapContractError(error).message);
+  }
 }

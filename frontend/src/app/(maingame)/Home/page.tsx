@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { Open_Sans } from "next/font/google";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
+import { useQueryClient } from "@tanstack/react-query";
 import Modal from "@/component/ResuableModal";
 import GlowingEffect from "@/component/GlowingEffectProps";
 import BackgroundImgBlur from "@/component/BackgroundBlur";
@@ -12,9 +13,8 @@ import StakeModal from "@/component/StakeModal";
 import GameCard from "@/component/GameCard";
 import GameFilter, { FilterOptions } from "@/component/GameFilter";
 import CreateGameModal from "@/component/CreateGameModal";
-
 import { useActiveGames, useMyGames, useGameStatus } from "@/hooks/useGame";
-import { GameStatus } from "@/lib/contractCalls";
+import { GameStatus, GameInfo } from "@/lib/contractCalls";
 import { useGameStore } from "@/store/gameStore";
 
 // ---------- Fonts ----------
@@ -24,7 +24,7 @@ const openSans = Open_Sans({ subsets: ["latin"], weight: ["400", "700"] });
 export default function HomePage() {
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
-
+  const queryClient = useQueryClient();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCreateGameOpen, setIsCreateGameOpen] = useState(false);
 
@@ -40,16 +40,17 @@ export default function HomePage() {
     loading: storeLoading,
   } = useGameStore();
 
-  const { data: fetchedActiveGames = [], isLoading: isLoadingGames } =
-    useActiveGames();
+  const {
+    data: fetchedActiveGames = [],
+    isLoading: isLoadingGames,
+    error: activeGamesError,
+  } = useActiveGames();
 
   const isFiltersApplied =
     filters.sortBy !== "newest" ||
     filters.sortOrder !== "desc" ||
     filters.minStake !== "0" ||
     filters.status !== GameStatus.Active;
-
-  console.log("Fetched Active Games:", fetchedActiveGames);
 
   useEffect(() => {
     if (fetchedActiveGames.length > 0) {
@@ -66,12 +67,15 @@ export default function HomePage() {
       );
     })
     .sort((a, b) => {
-      // Implement sorting based on filters (placeholder; adjust as needed)
       if (filters.sortBy === "newest") {
         return filters.sortOrder === "desc" ? -1 : 1;
       }
       return 0;
     });
+
+  const clearActiveGamesError = () => {
+    queryClient.resetQueries({ queryKey: ["activeGames"] });
+  };
 
   return (
     <BackgroundImgBlur>
@@ -117,15 +121,15 @@ export default function HomePage() {
 
           {/* Tabs & Controls */}
           <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mb-6">
-            <div className="bg-gray-800 rounded-lg p-1 inline-flex">
+            <div className="bg-gray-800/80 backdrop-blur-sm rounded-xl p-1 inline-flex shadow-lg">
               {["active", "my-games"].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab as "active" | "my-games")}
-                  className={`px-4 sm:px-6 py-2 rounded-md transition-colors text-sm sm:text-base ${
+                  className={`px-4 sm:px-8 py-2.5 rounded-lg transition-all duration-300 text-sm sm:text-base font-semibold ${
                     activeTab === tab
-                      ? "bg-red-600 text-white"
-                      : "text-gray-400 hover:text-white"
+                      ? "bg-gradient-to-r from-red-600 to-red-500 text-white shadow-lg"
+                      : "text-gray-400 hover:text-white hover:bg-gray-700/50"
                   }`}
                 >
                   {tab === "active" ? "Active Games" : "My Games"}
@@ -138,7 +142,7 @@ export default function HomePage() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsFilterOpen(true)}
-                className="bg-gray-800 text-white px-3 sm:px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-gray-700 text-sm sm:text-base"
+                className="bg-gray-800/80 backdrop-blur-sm text-white px-4 py-2.5 rounded-xl flex items-center gap-2 hover:bg-gray-700/80 text-sm sm:text-base font-semibold shadow-lg border border-gray-700/50 relative"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -152,9 +156,9 @@ export default function HomePage() {
                     clipRule="evenodd"
                   />
                 </svg>
-                Filter Games
+                Filter
                 {isFiltersApplied && (
-                  <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                  <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
                 )}
               </motion.button>
             )}
@@ -195,49 +199,74 @@ function ActiveGamesGrid({
   games,
   setIsCreateGameOpen,
 }: {
-  games: any[];
+  games: GameInfo[];
   setIsCreateGameOpen: (open: boolean) => void;
 }) {
   const router = useRouter();
   const selectedGame = useGameStore((state) => state.selectedGame);
   const setSelectedGame = useGameStore((state) => state.setSelectedGame);
+  const { myGames } = useGameStore();
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-      {/* Create Game Button */}
-      <motion.button
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
-        onClick={() => setIsCreateGameOpen(true)}
-        className="w-full border-2 border-dashed border-red-500/50 text-white rounded-xl hover:border-red-500 transition-all duration-300 flex flex-col items-center relative group aspect-[4/3] p-3 md:p-6"
-      >
-        <div className="flex flex-col items-center justify-center h-full gap-2 md:gap-4 relative">
-          <div className="p-2 md:p-3 rounded-full border-2 border-dashed border-red-500/50 group-hover:border-red-500 transition-colors">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5 md:h-8 md:w-8"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+    <>
+      <AnimatePresence mode="wait">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 sm:gap-6"
+        >
+          {/* Create Game Button */}
+          <motion.button
+            whileHover={{ scale: 1.03, y: -5 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setIsCreateGameOpen(true)}
+            className="w-full border-2 border-dashed border-red-500/50 bg-gradient-to-br from-red-500/5 to-purple-500/5 backdrop-blur-sm text-white rounded-2xl hover:border-red-500 hover:bg-red-500/10 transition-all duration-300 flex flex-col items-center relative group p-5 shadow-lg hover:shadow-red-500/20"
+          >
+            <div className="flex flex-col items-center justify-center h-full gap-2 sm:gap-3">
+              <div className="p-2 sm:p-3 rounded-full border-2 border-dashed border-red-500/50 group-hover:border-red-500 transition-all duration-300 group-hover:scale-110 bg-red-500/10">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6 sm:h-8 sm:w-8 text-red-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+              </div>
+              <div className="text-center">
+                <span className="text-sm sm:text-base font-bold block mb-0.5 sm:mb-1">
+                  Create New Game
+                </span>
+                <span className="text-xs text-gray-400">
+                  Start your own game room
+                </span>
+              </div>
+            </div>
+          </motion.button>
+          {/* Active Games */}
+          {games.map((game, index) => (
+            <motion.div
+              key={game.gameId.toString()}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
+              <GameDataLoader
+                // key={game.gameId.toString()}
+                game={game}
+                isUserGame={myGames.some((g) => g.gameId === game.gameId)}
               />
-            </svg>
-          </div>
-          <span className="text-sm md:text-lg font-bold text-center leading-tight">
-            Create Game
-          </span>
-        </div>
-      </motion.button>
-
-      {/* Active Games */}
-      {games.map((game) => (
-        <GameDataLoader key={game.gameId.toString()} game={game} />
-      ))}
+            </motion.div>
+          ))}
+        </motion.div>
+      </AnimatePresence>
 
       {selectedGame && (
         <StakeModal
@@ -248,18 +277,50 @@ function ActiveGamesGrid({
       )}
 
       {games.length === 0 && (
-        <div className="col-span-4 text-center py-10 text-gray-400">
-          No active games found
-        </div>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="col-span-full text-center py-20"
+        >
+          <div className="bg-gradient-to-br from-[#030b1f]/90 to-[#0a1529]/90 backdrop-blur-md rounded-2xl border border-gray-700/30 p-8 max-w-md mx-auto">
+            <div className="w-16 h-16 bg-gray-700/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-8 w-8 text-gray-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">
+              No Games Found
+            </h3>
+            <p className="text-gray-400 text-sm">
+              Create a new game to get started!
+            </p>
+          </div>
+        </motion.div>
       )}
-    </div>
+    </>
   );
 }
 
 // ---------- My Games Grid ----------
 function MyGamesGrid({ address }: { address: string }) {
-  const { data: fetchedMyGames, isLoading } = useMyGames(address);
+  const {
+    data: fetchedMyGames,
+    isLoading,
+    error: myGamesError,
+  } = useMyGames(address);
   const setMyGames = useGameStore((state) => state.setMyGames);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (fetchedMyGames) {
@@ -268,6 +329,10 @@ function MyGamesGrid({ address }: { address: string }) {
   }, [fetchedMyGames, setMyGames]);
 
   const { myGames: storeMyGames } = useGameStore();
+
+  const clearMyGamesError = () => {
+    queryClient.resetQueries({ queryKey: ["myGames", address] });
+  };
 
   if (isLoading)
     return (
@@ -287,6 +352,17 @@ function MyGamesGrid({ address }: { address: string }) {
 
   return (
     <div className="space-y-10">
+      {myGamesError && (
+        <div className="mb-4 p-2 bg-red-900 rounded text-red-300 text-sm">
+          {myGamesError.message}
+          <button
+            onClick={clearMyGamesError}
+            className="ml-2 text-red-200 hover:text-red-100"
+          >
+            ✕
+          </button>
+        </div>
+      )}
       {activeGames.length > 0 && (
         <section>
           <h3 className="text-xl font-semibold text-white mb-4">
@@ -294,7 +370,11 @@ function MyGamesGrid({ address }: { address: string }) {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {activeGames.map((game) => (
-              <GameDataLoader key={game.gameId.toString()} game={game} />
+              <GameDataLoader
+                key={game.gameId.toString()}
+                game={game}
+                isUserGame={true}
+              />
             ))}
           </div>
         </section>
@@ -307,7 +387,11 @@ function MyGamesGrid({ address }: { address: string }) {
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {endedGames.map((game) => (
-              <GameDataLoader key={game.gameId.toString()} game={game} />
+              <GameDataLoader
+                key={game.gameId.toString()}
+                game={game}
+                isUserGame={true}
+              />
             ))}
           </div>
         </section>
@@ -317,19 +401,31 @@ function MyGamesGrid({ address }: { address: string }) {
 }
 
 // ---------- Game Data Loader ----------
-function GameDataLoader({ game }: { game: any }) {
-  const { data: fullGame, isLoading } = useGameStatus(game.gameId);
+function GameDataLoader({
+  game,
+  isUserGame,
+}: {
+  game: GameInfo;
+  isUserGame: boolean;
+}) {
+  const { data: fullGame, isLoading, error } = useGameStatus(game.gameId);
+  const queryClient = useQueryClient();
+
+  const clearError = () => {
+    queryClient.resetQueries({
+      queryKey: ["gameStatus", game.gameId.toString()],
+    });
+  };
 
   if (isLoading || !fullGame)
     return <div className="bg-[#191F57CF] p-6 rounded-lg animate-pulse h-48" />;
 
   return (
     <GameCard
-      gameId={fullGame.gameId}
-      creator={fullGame.creator as `0x${string}`}
-      stake={fullGame.stake}
-      playerCount={fullGame.playerCount}
-      status={fullGame.status}
+      game={fullGame}
+      isUserGame={isUserGame}
+      error={error?.message}
+      clearError={error ? clearError : undefined}
     />
   );
 }

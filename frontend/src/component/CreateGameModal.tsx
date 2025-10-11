@@ -6,6 +6,13 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
 import { useCreateGame } from "@/hooks/useGame";
+import { useGameStore } from "@/store/gameStore";
+import { getGameInfo } from "@/lib/contractCalls";
+import {
+  showErrorToast,
+  showSuccessToast,
+  showTransactionToast,
+} from "@/component/Toast";
 
 interface CreateGameModalProps {
   isOpen: boolean;
@@ -19,14 +26,9 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
-
-  const { mutateAsync: createGame } = useCreateGame();
-
+  const { mutateAsync: createGame, isPending } = useCreateGame();
+  const { setCurrentCreatorGame, restrictCreatorActions } = useGameStore();
   const [stake, setStake] = useState("1");
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [txId, setTxId] = useState<string | null>(null);
-  const [showManualProceed, setShowManualProceed] = useState(false);
   const isMounted = useRef(true);
 
   useEffect(() => {
@@ -36,126 +38,188 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
   }, []);
 
   const handleCreateGame = async () => {
+    // Client-side validation
+    if (!isSignedIn || !stxAddress) {
+      showErrorToast("Please connect your Stacks wallet first", "Wallet Error");
+      return;
+    }
+
+    if (restrictCreatorActions(stxAddress)) {
+      const currentGame = useGameStore.getState().currentCreatorGame;
+      showErrorToast(
+        "You have an active created game. Please complete it first.",
+        "Active Game"
+      );
+      if (currentGame) {
+        router.push(`/GameScreen/${currentGame.gameId.toString()}`);
+      }
+      onClose();
+      return;
+    }
+
+    const stakeValue = Number(stake);
+    if (stakeValue < 0.1 || stakeValue > 100) {
+      showErrorToast("Stake must be between 0.1 and 100 STX", "Invalid Stake");
+      return;
+    }
+
     try {
-      setError(null);
-      setIsProcessing(true);
-      setTxId(null);
-      setShowManualProceed(false);
-
-      if (!isSignedIn || !stxAddress) {
-        setError("⚠ Please connect your Stacks wallet first");
-        setIsProcessing(false);
-        return;
-      }
-
-      const stakeValue = Number(stake);
-      if (stakeValue < 1) {
-        setError("Stake must be at least 1 STX");
-        setIsProcessing(false);
-        return;
-      }
-
-      // Convert to bigint
-      const stakeBigInt = BigInt(Math.floor(Number(stake) * 1_000_000));
+      const stakeBigInt = BigInt(Math.floor(stakeValue * 1_000_000));
       const durationBigInt = BigInt(600);
 
-      // Call Clarity function
-      const { txId } = await createGame({
+      // Show pending transaction toast
+      const pendingToastId = showTransactionToast(
+        "pending",
+        "pending",
+        undefined
+      );
+
+      const { txId, gameId } = await createGame({
         stake: stakeBigInt,
         duration: durationBigInt,
         stxAddress,
       });
 
-      // You can listen for transaction via Stacks API or redirect user
-      setTxId(txId);
+      // Show success toast with explorer link
+      showTransactionToast(
+        txId,
+        "success",
+        `https://explorer.stacks.co/txid/${txId}?chain=testnet`
+      );
+
+      const gameInfo = await getGameInfo(gameId);
+      setCurrentCreatorGame(gameInfo);
+
+      showSuccessToast("Game created successfully!", "Success");
+
       onClose();
-      router.push(`/GameScreen/1?tx=${txId}`);
-    } catch (err) {
+      router.push(`/GameScreen/${gameId}`);
+    } catch (err: any) {
       console.error("Create game error:", err);
-      if (isMounted.current) {
-        setError(err instanceof Error ? err.message : "Failed to create game");
-        setIsProcessing(false);
-      }
+
+      // Show error toast
+      showErrorToast(
+        err.message || "Failed to create game. Please try again.",
+        "Create Game Error"
+      );
     }
   };
 
-  // const handleManualProceed = () => {
-  //   onClose();
-  //   router.push("/GameScreen");
-  // };
-
-  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setError(null);
-      setIsProcessing(false);
-      setTxId(null);
-      setShowManualProceed(false);
       setStake("1");
     }
   }, [isOpen]);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
-      <div className="bg-[#0B1445] text-white text-center p-6 rounded-2xl">
+      <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-6 sm:p-8 rounded-2xl border border-red-500/20 max-w-md w-full">
         <GlowingEffect className="top-[63px] left-[47px]" />
-        <h2 className="text-[25px] font-bold mb-4">Create New Game Room</h2>
 
-        <p className="text-md mb-2 text-[#FF3B3B]">Set Stake Amount</p>
-        <div className="bg-gray-800 p-4 rounded-lg mb-6">
-          <input
-            type="number"
-            value={stake}
-            onChange={(e) => setStake(e.target.value)}
-            min="0.000001"
-            step="0.1"
-            className="w-full bg-transparent text-white text-center text-xl focus:outline-none"
-            placeholder="0.1"
-          />
-          <p className="text-sm text-gray-400 mt-2">STX</p>
+        {/* Header */}
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-8 w-8 text-red-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-bold mb-2">
+            Create New Game
+          </h2>
+          <p className="text-sm text-gray-400">
+            Set your stake and start a new game room
+          </p>
         </div>
 
-        <p className="text-sm mb-4">
-          You are about to create a game room with a stake of{" "}
-          <span className="text-red-500 font-bold">{stake} STX</span>. Players
-          will need to match this amount to join.
-        </p>
-
-        {txId && (
-          <p className="text-blue-400 text-xs mb-2">Transaction: {txId}</p>
-        )}
-
-        {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
-
-        {!isSignedIn && (
-          <p className="text-yellow-400 text-sm mb-2">
-            Please connect your wallet to proceed
-          </p>
-        )}
-
-        {showManualProceed && (
-          <div className="mb-4 p-3 bg-yellow-900 rounded-lg">
-            <p className="text-yellow-300 text-sm mb-2">
-              Transaction is taking longer than expected. If your transaction
-              was confirmed in your wallet, you can proceed manually.
+        {/* Stake Input */}
+        <div className="mb-6">
+          <label className="block text-sm font-semibold text-[#FF3B3B] mb-3 text-center">
+            Set Stake Amount
+          </label>
+          <div className="bg-gradient-to-r from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-6 rounded-xl border border-gray-700/50">
+            <input
+              type="number"
+              value={stake}
+              onChange={(e) => setStake(e.target.value)}
+              min="0.1"
+              max="100"
+              step="0.1"
+              className="w-full bg-transparent text-white text-center text-3xl font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              placeholder="1.0"
+              disabled={isPending}
+            />
+            <p className="text-sm text-gray-400 mt-3 text-center font-semibold">
+              STX
             </p>
-            <button
-              className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-4 rounded text-sm"
-              //onClick={handleManualProceed}
-            >
-              Proceed to Game
-            </button>
+          </div>
+        </div>
+
+        {/* Info Text */}
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-6">
+          <p className="text-sm text-blue-200 text-center">
+            💡 Players will need to stake{" "}
+            <span className="text-[#FF3B3B] font-bold">{stake} STX</span> to
+            join your game
+          </p>
+        </div>
+
+        {/* Wallet Warning */}
+        {!isSignedIn && (
+          <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
+            <p className="text-sm text-yellow-300 text-center">
+              Please connect your wallet to proceed
+            </p>
           </div>
         )}
 
+        {/* Action Button */}
         <button
-          className={`bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-full w-full
-            shadow-[0_4px_0_#474d76] hover:shadow-[0_4px_0_#474d76] active:translate-y-1 transition-all mt-6
-            ${isProcessing ? "opacity-70 cursor-not-allowed" : ""}`}
+          className={`w-full bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 shadow-lg hover:shadow-red-500/50 ${
+            isPending || !isSignedIn
+              ? "opacity-50 cursor-not-allowed"
+              : "hover:scale-105"
+          }`}
           onClick={handleCreateGame}
-          disabled={isProcessing || !isSignedIn}
+          disabled={isPending || !isSignedIn}
         >
-          {isProcessing ? "Processing..." : "Create Game Room"}
+          {isPending ? (
+            <span className="flex items-center justify-center gap-2">
+              <svg
+                className="animate-spin h-5 w-5"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              Creating Game...
+            </span>
+          ) : (
+            "Create Game Room"
+          )}
         </button>
       </div>
     </Modal>
