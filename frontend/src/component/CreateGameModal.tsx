@@ -2,7 +2,7 @@
 
 import Modal from "@/component/ResuableModal";
 import GlowingEffect from "@/component/GlowingEffectProps";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
 import { useCreateGame } from "@/hooks/useGame";
@@ -29,16 +29,8 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
   const { mutateAsync: createGame, isPending } = useCreateGame();
   const { setCurrentCreatorGame, restrictCreatorActions } = useGameStore();
   const [stake, setStake] = useState("1");
-  const isMounted = useRef(true);
-
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
 
   const handleCreateGame = async () => {
-    // Client-side validation
     if (!isSignedIn || !stxAddress) {
       showErrorToast("Please connect your Stacks wallet first", "Wallet Error");
       return;
@@ -67,20 +59,12 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
       const stakeBigInt = BigInt(Math.floor(stakeValue * 1_000_000));
       const durationBigInt = BigInt(600);
 
-      // Show pending transaction toast
-      const pendingToastId = showTransactionToast(
-        "pending",
-        "pending",
-        undefined
-      );
-
       const { txId, gameId } = await createGame({
         stake: stakeBigInt,
         duration: durationBigInt,
         stxAddress,
       });
 
-      // Show success toast with explorer link
       showTransactionToast(
         txId,
         "success",
@@ -97,11 +81,10 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
     } catch (err: any) {
       console.error("Create game error:", err);
 
-      // Show error toast
-      showErrorToast(
-        err.message || "Failed to create game. Please try again.",
-        "Create Game Error"
-      );
+      const errorMessage = err.message?.includes("User canceled")
+        ? "Transaction canceled by user"
+        : err.message || "Failed to create game. Please try again.";
+      showErrorToast(errorMessage, "Create Game Error");
     }
   };
 
@@ -113,15 +96,15 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
-      <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-6 sm:p-8 rounded-2xl border border-red-500/20 max-w-md w-full">
+      <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-4 sm:p-6 rounded-2xl border border-red-500/20 max-w-sm w-full mb-[80px]">
         <GlowingEffect className="top-[63px] left-[47px]" />
 
         {/* Header */}
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="text-center mb-4">
+          <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-8 w-8 text-red-500"
+              className="h-6 w-6 text-red-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -134,20 +117,20 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
               />
             </svg>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-2">
+          <h2 className="text-xl sm:text-2xl font-bold mb-1">
             Create New Game
           </h2>
-          <p className="text-sm text-gray-400">
+          <p className="text-xs text-gray-400">
             Set your stake and start a new game room
           </p>
         </div>
 
         {/* Stake Input */}
-        <div className="mb-6">
-          <label className="block text-sm font-semibold text-[#FF3B3B] mb-3 text-center">
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-[#FF3B3B] mb-2 text-center">
             Set Stake Amount
           </label>
-          <div className="bg-gradient-to-r from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-6 rounded-xl border border-gray-700/50">
+          <div className="bg-gradient-to-r from-gray-800/80 to-gray-900/80 backdrop-blur-sm p-4 rounded-xl border border-gray-700/50">
             <input
               type="number"
               value={stake}
@@ -155,19 +138,19 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
               min="0.1"
               max="100"
               step="0.1"
-              className="w-full bg-transparent text-white text-center text-3xl font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              className="w-full bg-transparent text-white text-center text-2xl font-bold focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               placeholder="1.0"
               disabled={isPending}
             />
-            <p className="text-sm text-gray-400 mt-3 text-center font-semibold">
+            <p className="text-xs text-gray-400 mt-2 text-center font-semibold">
               STX
             </p>
           </div>
         </div>
 
         {/* Info Text */}
-        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-200 text-center">
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
+          <p className="text-xs text-blue-200 text-center">
             💡 Players will need to stake{" "}
             <span className="text-[#FF3B3B] font-bold">{stake} STX</span> to
             join your game
@@ -176,8 +159,8 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
 
         {/* Wallet Warning */}
         {!isSignedIn && (
-          <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
-            <p className="text-sm text-yellow-300 text-center">
+          <div className="mb-4 p-2 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
+            <p className="text-xs text-yellow-300 text-center">
               Please connect your wallet to proceed
             </p>
           </div>
@@ -185,7 +168,7 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
 
         {/* Action Button */}
         <button
-          className={`w-full bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 shadow-lg hover:shadow-red-500/50 ${
+          className={`w-full bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-red-500/50 ${
             isPending || !isSignedIn
               ? "opacity-50 cursor-not-allowed"
               : "hover:scale-105"
@@ -196,7 +179,7 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
           {isPending ? (
             <span className="flex items-center justify-center gap-2">
               <svg
-                className="animate-spin h-5 w-5"
+                className="animate-spin h-4 w-4"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"

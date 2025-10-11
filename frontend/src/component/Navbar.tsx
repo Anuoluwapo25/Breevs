@@ -1,4 +1,5 @@
 "use client";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Home, Gamepad2, BarChart2, Wallet } from "lucide-react";
@@ -11,7 +12,6 @@ export default function Navbar() {
   const { stxAddress } = useAccount();
   const { currentPlayerGame, currentCreatorGame } = useGameStore();
 
-  // Determine the game URL based on player or creator status
   const getGameUrl = () => {
     if (!stxAddress) return "/GameScreen";
     if (currentPlayerGame && currentPlayerGame.status !== GameStatus.Ended) {
@@ -31,9 +31,9 @@ export default function Navbar() {
   ];
 
   return (
-    <nav className="fixed bottom-0 w-full bg-[#121232] p-4 flex justify-around text-white">
+    <nav className="fixed bottom-0 w-full bg-[#121232] p-4 flex justify-around text-white z-50">
       {navItems.map(({ href, icon: Icon }) => {
-        const isActive = pathname === href;
+        const isActive = pathname.startsWith(href.replace(/\/$/, ""));
 
         return (
           <Link

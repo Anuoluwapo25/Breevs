@@ -436,3 +436,7 @@ export const showTransactionToast = (
 
   return txId;
 };
+
+export const dismissToast = (toastId: string) => {
+  toast.dismiss(toastId);
+};

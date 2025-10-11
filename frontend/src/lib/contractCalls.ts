@@ -16,7 +16,6 @@ import { clarityToJSON } from "@/utils/clarity";
 import { waitForTxConfirmation } from "@/utils/waitForTx";
 import { buildStxPostConditions } from "@/utils/postConditionHelper";
 import { mapContractError } from "@/utils/contractErrors";
-import { showTransactionToast, showErrorToast } from "@/component/Toast";
 
 export enum GameStatus {
   Active = 0,

@@ -1,9 +1,9 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useAccount, useAuth } from "@micro-stacks/react";
 import { Open_Sans } from "next/font/google";
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
 import { connectWebSocketClient } from "@stacks/blockchain-api-client";
 import {
   useGameStatus,
@@ -17,6 +17,8 @@ import {
 import { GameStatus } from "@/lib/contractCalls";
 import BackgroundImgBlur from "@/component/BackgroundBlur";
 import Link from "next/link";
+import StakeModal from "@/component/StakeModal";
+import { useGameStore } from "@/store/gameStore";
 
 const openSans = Open_Sans({ subsets: ["latin"], weight: ["400", "700"] });
 const CONTRACT_ADDRESS =
@@ -46,8 +48,10 @@ const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ gameId }) => {
   const [winner, setWinner] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [winners, setWinners] = useState<WinnerAnnouncement[]>([]);
+  const [isStakeModalOpen, setIsStakeModalOpen] = useState(false);
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
+  const { setSelectedGame } = useGameStore();
 
   const {
     data: game,
@@ -321,6 +325,13 @@ const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ gameId }) => {
     }
   };
 
+  const handleJoinGame = () => {
+    if (game) {
+      setSelectedGame(game);
+      setIsStakeModalOpen(true);
+    }
+  };
+
   const getGameStatusText = () => {
     if (!game || isLoadingStatus) return "Loading...";
     switch (game.status) {
@@ -371,6 +382,15 @@ const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ gameId }) => {
     stxAddress === game?.winner &&
     !isClaiming &&
     !isPrizeClaimed;
+
+  const canJoinGame = () =>
+    game?.status === GameStatus.Active &&
+    isSignedIn &&
+    stxAddress &&
+    !game.players.includes(stxAddress) &&
+    (game.players.includes(game.creator)
+      ? game.playerCount - 1
+      : game.playerCount) < 5;
 
   if (isLoadingStatus || isError) {
     return (
@@ -423,6 +443,19 @@ const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ gameId }) => {
       <div
         className={`${openSans.className} w-full h-screen overflow-hidden flex flex-col`}
       >
+        {/* Stake Modal */}
+        <StakeModal
+          isOpen={isStakeModalOpen}
+          onClose={() => {
+            setIsStakeModalOpen(false);
+            setSelectedGame(null);
+          }}
+          onSuccess={() => {
+            setIsStakeModalOpen(false);
+            refetch();
+          }}
+        />
+
         {/* Fixed Header */}
         <div className="w-full bg-gradient-to-r from-[#030b1f] via-[#0a1529] to-[#030b1f] border-b border-red-500/20 py-3 px-4 sm:px-6 flex-shrink-0">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
@@ -567,18 +600,14 @@ const WheelOfFortune: React.FC<WheelOfFortuneProps> = ({ gameId }) => {
 
                   {/* Action Buttons */}
                   <div className="space-y-2">
-                    {game?.status === GameStatus.Active &&
-                      isSignedIn &&
-                      stxAddress &&
-                      !game.players.includes(stxAddress) &&
-                      adjustedPlayerCount < 5 && (
-                        <Link
-                          href="/"
-                          className="block w-full bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold py-2 px-4 rounded-lg text-center transition-all text-sm shadow-lg"
-                        >
-                          Join Game
-                        </Link>
-                      )}
+                    {canJoinGame() && (
+                      <button
+                        onClick={handleJoinGame}
+                        className="block w-full bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold py-2 px-4 rounded-lg text-center transition-all text-sm shadow-lg"
+                      >
+                        Join Game
+                      </button>
+                    )}
 
                     {canStartGame() && (
                       <button
