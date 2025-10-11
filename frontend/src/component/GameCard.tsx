@@ -14,18 +14,18 @@ interface GameCardProps {
   isUserGame?: boolean;
   error?: string;
   clearError?: () => void;
+  onClick?: () => void;
 }
 
 export default function GameCard({
   game,
-  isUserGame,
   error,
   clearError,
+  onClick,
 }: GameCardProps) {
   const router = useRouter();
   const { stxAddress } = useAccount();
-  const { setSelectedGame, restrictPlayerActions, restrictCreatorActions } =
-    useGameStore();
+  const { restrictPlayerActions, restrictCreatorActions } = useGameStore();
   const { data: isGameCreator } = useIsGameCreator(
     game.gameId,
     stxAddress || ""
@@ -56,10 +56,11 @@ export default function GameCard({
       }
     }
 
-    if (isGameCreator || isUserGame || game.status !== GameStatus.Active) {
+    // Navigate to game room
+    if (onClick) {
+      onClick();
+    } else {
       router.push(`/GameScreen/${gameIdStr}`);
-    } else if (game.status === GameStatus.Active && !isUserGame) {
-      setSelectedGame(game);
     }
   };
 
@@ -138,7 +139,6 @@ export default function GameCard({
         </div>
 
         {/* Logo */}
-
         <div className="flex justify-center">
           <Image
             src={Logo}

@@ -9,9 +9,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import Modal from "@/component/ResuableModal";
 import GlowingEffect from "@/component/GlowingEffectProps";
 import BackgroundImgBlur from "@/component/BackgroundBlur";
-import StakeModal from "@/component/StakeModal";
 import GameCard from "@/component/GameCard";
-import GameFilter, { FilterOptions } from "@/component/GameFilter";
+import GameFilter from "@/component/GameFilter";
 import CreateGameModal from "@/component/CreateGameModal";
 import { useActiveGames, useMyGames, useGameStatus } from "@/hooks/useGame";
 import { GameStatus, GameInfo } from "@/lib/contractCalls";
@@ -24,7 +23,6 @@ const openSans = Open_Sans({ subsets: ["latin"], weight: ["400", "700"] });
 export default function HomePage() {
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
-  const queryClient = useQueryClient();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isCreateGameOpen, setIsCreateGameOpen] = useState(false);
 
@@ -35,16 +33,10 @@ export default function HomePage() {
     setFilters,
     activeGames,
     setActiveGames,
-    myGames,
-    setMyGames,
-    loading: storeLoading,
   } = useGameStore();
 
-  const {
-    data: fetchedActiveGames = [],
-    isLoading: isLoadingGames,
-    error: activeGamesError,
-  } = useActiveGames();
+  const { data: fetchedActiveGames = [], isLoading: isLoadingGames } =
+    useActiveGames();
 
   const isFiltersApplied =
     filters.sortBy !== "newest" ||
@@ -66,16 +58,12 @@ export default function HomePage() {
         stakeInStx >= Number(filters.minStake) && game.status === filters.status
       );
     })
-    .sort((a, b) => {
+    .sort(() => {
       if (filters.sortBy === "newest") {
         return filters.sortOrder === "desc" ? -1 : 1;
       }
       return 0;
     });
-
-  const clearActiveGamesError = () => {
-    queryClient.resetQueries({ queryKey: ["activeGames"] });
-  };
 
   return (
     <BackgroundImgBlur>
@@ -203,8 +191,6 @@ function ActiveGamesGrid({
   setIsCreateGameOpen: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const selectedGame = useGameStore((state) => state.selectedGame);
-  const setSelectedGame = useGameStore((state) => state.setSelectedGame);
   const { myGames } = useGameStore();
 
   return (
@@ -259,22 +245,14 @@ function ActiveGamesGrid({
               transition={{ delay: index * 0.05 }}
             >
               <GameDataLoader
-                // key={game.gameId.toString()}
                 game={game}
                 isUserGame={myGames.some((g) => g.gameId === game.gameId)}
+                onClick={() => router.push(`/GameScreen/${game.gameId}`)}
               />
             </motion.div>
           ))}
         </motion.div>
       </AnimatePresence>
-
-      {selectedGame && (
-        <StakeModal
-          isOpen={true}
-          onClose={() => setSelectedGame(null)}
-          onSuccess={() => router.push(`/GameScreen/${selectedGame.gameId}`)}
-        />
-      )}
 
       {games.length === 0 && (
         <motion.div
@@ -321,6 +299,7 @@ function MyGamesGrid({ address }: { address: string }) {
   } = useMyGames(address);
   const setMyGames = useGameStore((state) => state.setMyGames);
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   useEffect(() => {
     if (fetchedMyGames) {
@@ -374,6 +353,7 @@ function MyGamesGrid({ address }: { address: string }) {
                 key={game.gameId.toString()}
                 game={game}
                 isUserGame={true}
+                onClick={() => router.push(`/GameScreen/${game.gameId}`)}
               />
             ))}
           </div>
@@ -391,6 +371,7 @@ function MyGamesGrid({ address }: { address: string }) {
                 key={game.gameId.toString()}
                 game={game}
                 isUserGame={true}
+                onClick={() => router.push(`/GameScreen/${game.gameId}`)}
               />
             ))}
           </div>
@@ -404,9 +385,11 @@ function MyGamesGrid({ address }: { address: string }) {
 function GameDataLoader({
   game,
   isUserGame,
+  onClick,
 }: {
   game: GameInfo;
   isUserGame: boolean;
+  onClick: () => void;
 }) {
   const { data: fullGame, isLoading, error } = useGameStatus(game.gameId);
   const queryClient = useQueryClient();
@@ -426,6 +409,7 @@ function GameDataLoader({
       isUserGame={isUserGame}
       error={error?.message}
       clearError={error ? clearError : undefined}
+      onClick={onClick}
     />
   );
 }

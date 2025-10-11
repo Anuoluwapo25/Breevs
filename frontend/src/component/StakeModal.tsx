@@ -2,7 +2,7 @@
 
 import Modal from "@/component/ResuableModal";
 import GlowingEffect from "@/component/GlowingEffectProps";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth, useAccount } from "@micro-stacks/react";
 import { useJoinGame } from "@/hooks/useGame";
@@ -19,7 +19,7 @@ interface StakeModalProps {
   onSuccess?: () => void;
 }
 
-export const StakeModal: React.FC<StakeModalProps> = ({
+const StakeModal: React.FC<StakeModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
@@ -27,11 +27,10 @@ export const StakeModal: React.FC<StakeModalProps> = ({
   const router = useRouter();
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
-  const { mutateAsync: joinGameMutation } = useJoinGame();
+  const { mutateAsync: joinGameMutation, isPending } = useJoinGame();
   const { selectedGame, setSelectedGame, setCurrentPlayerGame } =
     useGameStore();
-  const [isProcessing, setIsProcessing] = useState(false);
-  const isMounted = useRef(true);
+  const [txId, setTxId] = useState<string | null>(null);
 
   const stake = selectedGame?.stake ?? 0n;
   const gameId = selectedGame?.gameId;
@@ -39,52 +38,40 @@ export const StakeModal: React.FC<StakeModalProps> = ({
   const stakeValue = typeof stake === "bigint" ? stake : BigInt(stake ?? 0);
   const stakeInSTX = Number(stakeValue) / 1_000_000;
 
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
   const handleStake = async () => {
-    // Client-side validation
-    if (!isSignedIn || !stxAddress) {
-      showErrorToast("Please connect your Stacks wallet first", "Wallet Error");
-      return;
-    }
-
-    if (!gameId) {
-      showErrorToast("Game ID is missing", "Invalid Game");
-      return;
-    }
-
-    setIsProcessing(true);
-
     try {
-      // Show pending transaction toast
-      showTransactionToast("pending", "pending", undefined);
+      setTxId(null);
 
-      const { txId } = await joinGameMutation({
+      if (!isSignedIn || !stxAddress) {
+        showErrorToast(
+          "Please connect your Stacks wallet first",
+          "Wallet Error"
+        );
+        return;
+      }
+
+      if (!gameId) {
+        showErrorToast("Game ID is missing", "Invalid Game");
+        return;
+      }
+
+      const tx = await joinGameMutation({
         gameId,
         stake: stakeValue,
         stxAddress,
       });
-
-      // Show success toast with explorer link
-      showTransactionToast(
-        txId,
-        "success",
-        `https://explorer.stacks.co/txid/${txId}?chain=testnet`
-      );
-
       setCurrentPlayerGame(selectedGame);
+      setTxId(tx.txId);
 
-      showSuccessToast(`Successfully joined Game #${gameId}!`, "Game Joined");
+      showTransactionToast(
+        tx.txId,
+        "success",
+        `https://explorer.stacks.co/txid/${tx.txId}?chain=testnet`
+      );
+      showSuccessToast("Successfully joined the game!", "Success");
 
-      // Reset state before closing
-      setIsProcessing(false);
-      setSelectedGame(null);
       onClose();
-
+      setSelectedGame(null);
       if (onSuccess) {
         onSuccess();
       } else {
@@ -93,47 +80,31 @@ export const StakeModal: React.FC<StakeModalProps> = ({
     } catch (err: any) {
       console.error("Stake error:", err);
 
-      // Reset processing state immediately on error
-      setIsProcessing(false);
-
-      // Show error toast
-      showErrorToast(
-        err.message || "Failed to join game. Please try again.",
-        "Join Game Error"
-      );
-
-      // Don't close modal on error, let user try again or manually close
-      // If you want to close on error, uncomment the lines below:
-      // setSelectedGame(null);
-      // onClose();
+      const errorMessage = err.message?.includes("User canceled")
+        ? "Transaction canceled by user"
+        : err.message || "Failed to stake";
+      showErrorToast(errorMessage, "Stake Error");
+      setTxId(null);
     }
   };
 
-  // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
-      setIsProcessing(false);
-    }
-  }, [isOpen]);
-
-  // Reset state when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      setIsProcessing(false);
+      setTxId(null);
     }
   }, [isOpen]);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose}>
-      <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-6 sm:p-8 rounded-2xl border border-red-500/20 max-w-md w-full">
+      <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-4 sm:p-6 rounded-2xl border border-red-500/20 max-w-sm w-full mb-[80px]">
         <GlowingEffect className="top-[63px] left-[47px]" />
 
         {/* Header */}
-        <div className="text-center mb-6">
-          <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+        <div className="text-center mb-4">
+          <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
             <svg
               xmlns="http://www.w3.org/2000/svg"
-              className="h-8 w-8 text-green-500"
+              className="h-6 w-6 text-green-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -146,17 +117,17 @@ export const StakeModal: React.FC<StakeModalProps> = ({
               />
             </svg>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold mb-2">Join Game</h2>
-          <p className="text-sm text-gray-400">Stake to enter and compete</p>
+          <h2 className="text-xl sm:text-2xl font-bold mb-1">Join Game</h2>
+          <p className="text-xs text-gray-400">Stake to enter and compete</p>
         </div>
 
         {/* Stake Display */}
-        <div className="bg-gradient-to-r from-red-500/20 via-purple-500/20 to-red-500/20 border border-red-500/30 rounded-xl p-6 mb-6">
-          <p className="text-sm text-gray-400 mb-2 text-center">
+        <div className="bg-gradient-to-r from-red-500/20 via-purple-500/20 to-red-500/20 border border-red-500/30 rounded-xl p-4 mb-4">
+          <p className="text-xs text-gray-400 mb-2 text-center">
             Required Stake
           </p>
           <div className="text-center">
-            <p className="text-4xl sm:text-5xl font-bold text-[#FF3B3B] drop-shadow-lg">
+            <p className="text-3xl sm:text-4xl font-bold text-[#FF3B3B] drop-shadow-lg">
               {stakeValue > 0n
                 ? `${Number(stakeInSTX.toFixed(3))
                     .toString()
@@ -168,16 +139,16 @@ export const StakeModal: React.FC<StakeModalProps> = ({
 
         {/* Game Info */}
         {selectedGame && (
-          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-4 mb-6 border border-white/10">
+          <div className="bg-white/5 backdrop-blur-sm rounded-lg p-3 mb-4 border border-white/10">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-400">Game ID:</span>
-              <span className="text-sm font-bold text-white">
+              <span className="text-xs text-gray-400">Game ID:</span>
+              <span className="text-xs font-bold text-white">
                 #{selectedGame.gameId.toString()}
               </span>
             </div>
             <div className="flex justify-between items-center mt-2">
-              <span className="text-sm text-gray-400">Players:</span>
-              <span className="text-sm font-bold text-white">
+              <span className="text-xs text-gray-400">Players:</span>
+              <span className="text-xs font-bold text-white">
                 {selectedGame.players.includes(selectedGame.creator)
                   ? selectedGame.playerCount - 1
                   : selectedGame.playerCount}
@@ -187,10 +158,19 @@ export const StakeModal: React.FC<StakeModalProps> = ({
           </div>
         )}
 
+        {/* Transaction ID */}
+        {txId && (
+          <div className="mb-4 p-2 bg-green-900/30 border border-green-500/50 rounded-lg">
+            <p className="text-xs text-green-300 text-center font-mono break-all">
+              Transaction: {txId}
+            </p>
+          </div>
+        )}
+
         {/* Wallet Warning */}
         {!isSignedIn && (
-          <div className="mb-4 p-3 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
-            <p className="text-sm text-yellow-300 text-center">
+          <div className="mb-4 p-2 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
+            <p className="text-xs text-yellow-300 text-center">
               Please connect your wallet to proceed
             </p>
           </div>
@@ -198,18 +178,18 @@ export const StakeModal: React.FC<StakeModalProps> = ({
 
         {/* Action Button */}
         <button
-          className={`w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-3 px-6 rounded-xl transition-all duration-300 shadow-lg hover:shadow-green-500/50 ${
-            isProcessing || !isSignedIn
+          className={`w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-green-500/50 ${
+            isPending || !isSignedIn
               ? "opacity-50 cursor-not-allowed"
               : "hover:scale-105"
           }`}
           onClick={handleStake}
-          disabled={isProcessing || !isSignedIn}
+          disabled={isPending || !isSignedIn}
         >
-          {isProcessing ? (
+          {isPending ? (
             <span className="flex items-center justify-center gap-2">
               <svg
-                className="animate-spin h-5 w-5"
+                className="animate-spin h-4 w-4"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
@@ -238,5 +218,4 @@ export const StakeModal: React.FC<StakeModalProps> = ({
     </Modal>
   );
 };
-
 export default StakeModal;
