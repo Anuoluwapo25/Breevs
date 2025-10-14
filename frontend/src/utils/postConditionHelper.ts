@@ -22,7 +22,6 @@ export async function buildStxPostConditions(
 
     for (const fn of possibleFns) {
       try {
-        
         const pc = fn(stxAddress, FungibleConditionCode.Equal, amount);
         return {
           postConditions: [pc],
