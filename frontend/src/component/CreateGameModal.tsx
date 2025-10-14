@@ -27,7 +27,8 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
   const { mutateAsync: createGame, isPending } = useCreateGame();
-  const { setCurrentCreatorGame, restrictCreatorActions } = useGameStore();
+  const { setCurrentCreatorGame, getCurrentActiveGame, hasActiveGame } =
+    useGameStore();
   const [stake, setStake] = useState("1");
 
   const handleCreateGame = async () => {
@@ -36,14 +37,15 @@ const CreateGameModal: React.FC<CreateGameModalProps> = ({
       return;
     }
 
-    if (restrictCreatorActions(stxAddress)) {
-      const currentGame = useGameStore.getState().currentCreatorGame;
+    // Check if user has any active game
+    if (hasActiveGame(stxAddress)) {
+      const activeGame = getCurrentActiveGame(stxAddress);
       showErrorToast(
-        "You have an active created game. Please complete it first.",
+        `You have an active game (#${activeGame?.gameId}). Please complete it first.`,
         "Active Game"
       );
-      if (currentGame) {
-        router.push(`/GameScreen/${currentGame.gameId.toString()}`);
+      if (activeGame) {
+        router.push(`/GameScreen/${activeGame.gameId.toString()}`);
       }
       onClose();
       return;
