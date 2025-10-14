@@ -1509,8 +1509,7 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
                 {chr(10).join([f"- {p.wallet_address[:12]}... {'(Risk Mode Active)' if p.used_risk_mode else ''}" for p in players.filter(eliminated=False)])}
                 """
             
-            # Use Gemini Flash for fast, cost-effective commentary
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             
             prompt = f"""You are a live sports commentator for a blockchain Russian Roulette game. 
                 Provide exciting, real-time commentary on the current game state.
@@ -1680,7 +1679,7 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
                 {chr(10).join([f"{i+1}. {e['address'][:10]}... - Round {e['round']}" for i, e in enumerate(elimination_order)])}
                 """
             
-            model = genai.GenerativeModel('gemini-1.5-pro-001')
+            model = genai.GenerativeModel('gemini-2.5-pro')
             
             prompt = f"""You are a master storyteller recounting an epic Russian Roulette game on the Stacks blockchain. 
                     Write a compelling narrative summary that captures the full arc of this game.
@@ -1850,7 +1849,7 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
                 """
             
             model = genai.GenerativeModel(
-                'gemini-1.5-flash-001',
+                'gemini-2.5-flash',
                 generation_config={
                     "response_mime_type": "application/json"
                 }
@@ -1958,7 +1957,7 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
                     Be insightful like a professional analyst.
                     """
             
-            model = genai.GenerativeModel('gemini-1.5-flash-001')
+            model = genai.GenerativeModel('gemini-2.5-flash')
             response = model.generate_content(context)
             
             return Response({
