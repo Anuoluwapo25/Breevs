@@ -173,7 +173,7 @@ export async function joinGame(
         contractAddress: CONTRACT_ADDRESS,
         contractName: CONTRACT_NAME,
         functionName: "join-game",
-        functionArgs: [uintCV(gameId), uintCV(stake)],
+        functionArgs: [uintCV(gameId)],
         network: STACKS_TESTNET,
         appDetails: APP_DETAILS,
         postConditionMode: pcResult.postConditionMode,
@@ -356,12 +356,10 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
       senderAddress: CONTRACT_ADDRESS,
     });
 
-    // Check if the result is none (game not found)
     if (result.type === ClarityType.OptionalNone) {
       throw new Error(`Game ${gameId} not found`);
     }
 
-    // Ensure result is an optional some with a tuple
     if (
       result.type !== ClarityType.OptionalSome ||
       !result.value ||
@@ -372,18 +370,14 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
       );
     }
 
-    // Deserialize the tuple
     const jsonData = cvToJSON(result.value);
 
-    // Extract the tuple fields from jsonData.value
     const data: GameInfoTuple = jsonData.value as GameInfoTuple;
 
-    // Validate tuple structure
     if (!data || typeof data !== "object") {
       throw new Error(`Invalid tuple data for gameId ${gameId}`);
     }
 
-    // Helper function to safely convert uint to BigInt
     const toBigInt = (
       value: string | number | bigint | undefined,
       field: string
@@ -400,7 +394,6 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
       }
     };
 
-    // Helper function to safely convert uint to number
     const toNumber = (
       value: string | number | bigint | undefined,
       field: string
@@ -417,7 +410,6 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
       return num;
     };
 
-    // Extract and validate fields
     const creator = data.creator?.value;
     if (!creator || typeof creator !== "string") {
       throw new Error(`Invalid creator for gameId ${gameId}: ${creator}`);

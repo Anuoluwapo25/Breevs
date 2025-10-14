@@ -12,6 +12,7 @@ import {
   showSuccessToast,
   showTransactionToast,
 } from "@/component/Toast";
+import { GameStatus, GameInfo } from "@/lib/contractCalls";
 
 interface StakeModalProps {
   isOpen: boolean;
@@ -28,8 +29,14 @@ const StakeModal: React.FC<StakeModalProps> = ({
   const { isSignedIn } = useAuth();
   const { stxAddress } = useAccount();
   const { mutateAsync: joinGameMutation, isPending } = useJoinGame();
-  const { selectedGame, setSelectedGame, setCurrentPlayerGame } =
-    useGameStore();
+  const {
+    selectedGame,
+    setSelectedGame,
+    setCurrentPlayerGame,
+    hasActiveGame,
+    getCurrentActiveGame,
+    addToMyGames,
+  } = useGameStore();
   const [txId, setTxId] = useState<string | null>(null);
 
   const stake = selectedGame?.stake ?? 0n;
@@ -50,8 +57,25 @@ const StakeModal: React.FC<StakeModalProps> = ({
         return;
       }
 
-      if (!gameId) {
-        showErrorToast("Game ID is missing", "Invalid Game");
+      if (!selectedGame || !gameId) {
+        showErrorToast("No game selected", "Invalid Game");
+        return;
+      }
+
+      if (selectedGame.status !== GameStatus.Active) {
+        showErrorToast("Cannot join a game that is not active", "Invalid Game");
+        return;
+      }
+
+      // Check if user has an active game
+      const hasActive = hasActiveGame(stxAddress);
+      const activeGame = getCurrentActiveGame(stxAddress);
+      if (hasActive && activeGame && activeGame.gameId !== gameId) {
+        showErrorToast(
+          `You are already in an active game (#${activeGame.gameId}). Please complete it first.`,
+          "Active Game"
+        );
+        router.push(`/GameScreen/${activeGame.gameId.toString()}`);
         return;
       }
 
@@ -60,7 +84,16 @@ const StakeModal: React.FC<StakeModalProps> = ({
         stake: stakeValue,
         stxAddress,
       });
-      setCurrentPlayerGame(selectedGame);
+
+      // Update store with the joined game
+      if (selectedGame) {
+        addToMyGames({
+          ...selectedGame,
+          players: [...selectedGame.players, stxAddress],
+        });
+        setCurrentPlayerGame(selectedGame, stxAddress);
+      }
+
       setTxId(tx.txId);
 
       showTransactionToast(
@@ -79,7 +112,6 @@ const StakeModal: React.FC<StakeModalProps> = ({
       }
     } catch (err: any) {
       console.error("Stake error:", err);
-
       const errorMessage = err.message?.includes("User canceled")
         ? "Transaction canceled by user"
         : err.message || "Failed to stake";
@@ -98,8 +130,6 @@ const StakeModal: React.FC<StakeModalProps> = ({
     <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-gradient-to-br from-[#0B1445] via-[#0a1529] to-[#0B1445] text-white p-4 sm:p-6 rounded-2xl border border-red-500/20 max-w-sm w-full mb-[80px]">
         <GlowingEffect className="top-[63px] left-[47px]" />
-
-        {/* Header */}
         <div className="text-center mb-4">
           <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
             <svg
@@ -120,8 +150,6 @@ const StakeModal: React.FC<StakeModalProps> = ({
           <h2 className="text-xl sm:text-2xl font-bold mb-1">Join Game</h2>
           <p className="text-xs text-gray-400">Stake to enter and compete</p>
         </div>
-
-        {/* Stake Display */}
         <div className="bg-gradient-to-r from-red-500/20 via-purple-500/20 to-red-500/20 border border-red-500/30 rounded-xl p-4 mb-4">
           <p className="text-xs text-gray-400 mb-2 text-center">
             Required Stake
@@ -136,8 +164,6 @@ const StakeModal: React.FC<StakeModalProps> = ({
             </p>
           </div>
         </div>
-
-        {/* Game Info */}
         {selectedGame && (
           <div className="bg-white/5 backdrop-blur-sm rounded-lg p-3 mb-4 border border-white/10">
             <div className="flex justify-between items-center">
@@ -157,8 +183,6 @@ const StakeModal: React.FC<StakeModalProps> = ({
             </div>
           </div>
         )}
-
-        {/* Transaction ID */}
         {txId && (
           <div className="mb-4 p-2 bg-green-900/30 border border-green-500/50 rounded-lg">
             <p className="text-xs text-green-300 text-center font-mono break-all">
@@ -166,8 +190,6 @@ const StakeModal: React.FC<StakeModalProps> = ({
             </p>
           </div>
         )}
-
-        {/* Wallet Warning */}
         {!isSignedIn && (
           <div className="mb-4 p-2 bg-yellow-900/30 border border-yellow-500/50 rounded-lg">
             <p className="text-xs text-yellow-300 text-center">
@@ -175,16 +197,14 @@ const StakeModal: React.FC<StakeModalProps> = ({
             </p>
           </div>
         )}
-
-        {/* Action Button */}
         <button
           className={`w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white font-bold py-2 px-4 rounded-xl transition-all duration-300 shadow-lg hover:shadow-green-500/50 ${
-            isPending || !isSignedIn
+            isPending || !isSignedIn || hasActiveGame(stxAddress || "")
               ? "opacity-50 cursor-not-allowed"
               : "hover:scale-105"
           }`}
           onClick={handleStake}
-          disabled={isPending || !isSignedIn}
+          disabled={isPending || !isSignedIn || hasActiveGame(stxAddress || "")}
         >
           {isPending ? (
             <span className="flex items-center justify-center gap-2">
@@ -201,12 +221,12 @@ const StakeModal: React.FC<StakeModalProps> = ({
                   r="10"
                   stroke="currentColor"
                   strokeWidth="4"
-                ></circle>
+                />
                 <path
                   className="opacity-75"
                   fill="currentColor"
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
+                />
               </svg>
               Processing...
             </span>
@@ -218,4 +238,5 @@ const StakeModal: React.FC<StakeModalProps> = ({
     </Modal>
   );
 };
+
 export default StakeModal;

@@ -8,10 +8,10 @@ import { useIsGameCreator } from "@/hooks/useGame";
 import { motion } from "framer-motion";
 import { useGameStore } from "@/store/gameStore";
 import { useAccount } from "@micro-stacks/react";
+import { showErrorToast } from "@/component/Toast";
 
 interface GameCardProps {
   game: GameInfo;
-  isUserGame?: boolean;
   error?: string;
   clearError?: () => void;
   onClick?: () => void;
@@ -25,42 +25,48 @@ export default function GameCard({
 }: GameCardProps) {
   const router = useRouter();
   const { stxAddress } = useAccount();
-  const { restrictPlayerActions, restrictCreatorActions } = useGameStore();
+  const { hasActiveGame, getCurrentActiveGame, setSelectedGame } =
+    useGameStore();
   const { data: isGameCreator } = useIsGameCreator(
-    game.gameId,
+    stxAddress ? game.gameId : 0n,
     stxAddress || ""
   );
 
+  const isUserGame = stxAddress ? game.players.includes(stxAddress) : false;
+  const isJoinDisabled = stxAddress
+    ? hasActiveGame(stxAddress) && !isUserGame && !isGameCreator
+    : false;
+
   const handleAction = async () => {
     if (!stxAddress) {
-      alert("Please connect your wallet to interact.");
+      showErrorToast(
+        "Please connect your wallet to interact",
+        "Wallet Required"
+      );
       return;
     }
 
     const gameIdStr = game.gameId.toString();
 
-    if (restrictPlayerActions(stxAddress)) {
-      const currentGame = useGameStore.getState().currentPlayerGame;
-      if (currentGame && currentGame.gameId !== game.gameId) {
-        alert("You are already in another game. Please complete it first.");
-        router.push(`/GameScreen/${currentGame.gameId.toString()}`);
-        return;
+    if (isJoinDisabled) {
+      const activeGame = getCurrentActiveGame(stxAddress);
+      if (activeGame) {
+        showErrorToast(
+          `You are already in an active game (#${activeGame.gameId}). Please complete it first.`,
+          "Active Game"
+        );
+        router.push(`/GameScreen/${activeGame.gameId.toString()}`);
       }
-    }
-    if (restrictCreatorActions(stxAddress)) {
-      const currentCreatorGame = useGameStore.getState().currentCreatorGame;
-      if (currentCreatorGame && currentCreatorGame.gameId !== game.gameId) {
-        alert("You have an active created game. Please complete it first.");
-        router.push(`/GameScreen/${currentCreatorGame.gameId.toString()}`);
-        return;
-      }
+      return;
     }
 
-    // Navigate to game room
-    if (onClick) {
-      onClick();
-    } else {
+    if (isGameCreator || isUserGame || game.status !== GameStatus.Active) {
       router.push(`/GameScreen/${gameIdStr}`);
+    } else if (game.status === GameStatus.Active && !isUserGame) {
+      setSelectedGame(game);
+      if (onClick) {
+        onClick();
+      }
     }
   };
 
@@ -107,16 +113,25 @@ export default function GameCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      whileHover={{ scale: 1.03, y: -5 }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={{
+        scale: isJoinDisabled ? 1 : 1.03,
+        y: isJoinDisabled ? 0 : -5,
+      }}
+      whileTap={{ scale: isJoinDisabled ? 1 : 0.98 }}
       onClick={handleAction}
-      className="bg-gradient-to-br from-[#191F57]/90 to-[#0a1529]/90 backdrop-blur-md p-3 sm:p-5 border border-gray-700/50 rounded-2xl shadow-xl hover:shadow-2xl hover:shadow-red-500/20 transition-all duration-300 cursor-pointer w-full group relative overflow-hidden"
+      className={`bg-gradient-to-br from-[#191F57]/90 to-[#0a1529]/90 backdrop-blur-md p-3 sm:p-5 border border-gray-700/50 rounded-2xl shadow-xl hover:shadow-2xl hover:shadow-red-500/20 transition-all duration-300 w-full group relative overflow-hidden ${
+        isJoinDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+      }`}
     >
-      {/* Gradient overlay on hover */}
       <div className="absolute inset-0 bg-gradient-to-br from-red-500/0 to-purple-500/0 group-hover:from-red-500/5 group-hover:to-purple-500/5 transition-all duration-300 rounded-2xl pointer-events-none" />
-
+      {isJoinDisabled && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl pointer-events-none">
+          <p className="text-xs text-white text-center">
+            Complete your active game first
+          </p>
+        </div>
+      )}
       <div className="flex flex-col h-full justify-between gap-3 sm:gap-3 relative z-10">
-        {/* Header */}
         <div className="flex justify-between items-start gap-3">
           <div className="flex-1 min-w-0">
             <p className="text-[10px] sm:text-xs text-gray-400 mb-1">
@@ -126,7 +141,6 @@ export default function GameCard({
               {shortCreator}
             </p>
           </div>
-
           <div
             className={`flex-shrink-0 px-2 py-0.5 sm:px-3 sm:py-1 rounded-full flex items-center gap-1 border backdrop-blur-sm ${getStatusStyles(
               game.status
@@ -137,8 +151,6 @@ export default function GameCard({
             </span>
           </div>
         </div>
-
-        {/* Logo */}
         <div className="flex justify-center">
           <Image
             src={Logo}
@@ -146,7 +158,6 @@ export default function GameCard({
             className="hidden sm:block w-20 h-auto"
           />
         </div>
-
         <div className="text-center py-1 sm:py-3 bg-gradient-to-r from-red-500/10 via-purple-500/10 to-red-500/10 rounded-xl border border-red-500/20 group-hover:border-red-500/40 transition-all duration-300">
           <p className="text-xs text-gray-400 mb-1 sm:text-sm font-semibold">
             Stake to Win
@@ -159,8 +170,6 @@ export default function GameCard({
               : "Free Entry"}
           </p>
         </div>
-
-        {/* Game Stats */}
         <div className="grid grid-cols-2 gap-3 text-center text-[10px] sm:text-sm">
           <div className="bg-white/5 backdrop-blur-sm rounded-lg p-1 sm:p-3 border border-white/10 group-hover:bg-white/10 transition-all duration-300">
             <p className="text-xs text-gray-400">Players</p>
@@ -176,8 +185,6 @@ export default function GameCard({
             </p>
           </div>
         </div>
-
-        {/* Error Message */}
         {error && clearError && (
           <div className="mt-2 p-3 bg-red-900/50 border border-red-500/50 rounded-lg backdrop-blur-sm">
             <div className="flex justify-between items-start gap-2">

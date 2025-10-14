@@ -33,22 +33,26 @@ export default function HomePage() {
     setFilters,
     activeGames,
     setActiveGames,
+    setMyGames,
   } = useGameStore();
 
   const { data: fetchedActiveGames = [], isLoading: isLoadingGames } =
     useActiveGames();
-
-  const isFiltersApplied =
-    filters.sortBy !== "newest" ||
-    filters.sortOrder !== "desc" ||
-    filters.minStake !== "0" ||
-    filters.status !== GameStatus.Active;
+  const { data: fetchedMyGames = [], isLoading: isLoadingMyGames } =
+    useMyGames();
 
   useEffect(() => {
     if (fetchedActiveGames.length > 0) {
       setActiveGames(fetchedActiveGames);
     }
   }, [fetchedActiveGames, setActiveGames]);
+
+  useEffect(() => {
+    if (fetchedMyGames.length > 0) {
+      console.log("HomePage: Setting myGames in store:", fetchedMyGames);
+      setMyGames(fetchedMyGames);
+    }
+  }, [fetchedMyGames, setMyGames]);
 
   // Filter active games based on store filters
   const filteredActiveGames = activeGames
@@ -64,6 +68,12 @@ export default function HomePage() {
       }
       return 0;
     });
+
+  const isFiltersApplied =
+    filters.sortBy !== "newest" ||
+    filters.sortOrder !== "desc" ||
+    filters.minStake !== "0" ||
+    filters.status !== GameStatus.Active;
 
   return (
     <BackgroundImgBlur>
@@ -159,7 +169,7 @@ export default function HomePage() {
                 Connect your wallet to create or join games.
               </p>
             </div>
-          ) : isLoadingGames ? (
+          ) : isLoadingGames || isLoadingMyGames ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {[1, 2, 3, 4].map((i) => (
                 <div
@@ -191,7 +201,6 @@ function ActiveGamesGrid({
   setIsCreateGameOpen: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const { myGames } = useGameStore();
 
   return (
     <>
@@ -246,7 +255,6 @@ function ActiveGamesGrid({
             >
               <GameDataLoader
                 game={game}
-                isUserGame={myGames.some((g) => g.gameId === game.gameId)}
                 onClick={() => router.push(`/GameScreen/${game.gameId}`)}
               />
             </motion.div>
@@ -292,17 +300,14 @@ function ActiveGamesGrid({
 
 // ---------- My Games Grid ----------
 function MyGamesGrid({ address }: { address: string }) {
-  const {
-    data: fetchedMyGames,
-    isLoading,
-    error: myGamesError,
-  } = useMyGames(address);
+  const { data: fetchedMyGames, isLoading, error: myGamesError } = useMyGames();
   const setMyGames = useGameStore((state) => state.setMyGames);
   const queryClient = useQueryClient();
   const router = useRouter();
 
   useEffect(() => {
     if (fetchedMyGames) {
+      console.log("MyGamesGrid: Setting myGames in store:", fetchedMyGames);
       setMyGames(fetchedMyGames);
     }
   }, [fetchedMyGames, setMyGames]);
@@ -325,7 +330,7 @@ function MyGamesGrid({ address }: { address: string }) {
     );
 
   const activeGames = storeMyGames.filter(
-    (g) => g.status === GameStatus.Active
+    (g) => g.status === GameStatus.Active || g.status === GameStatus.InProgress
   );
   const endedGames = storeMyGames.filter((g) => g.status === GameStatus.Ended);
 
@@ -347,12 +352,11 @@ function MyGamesGrid({ address }: { address: string }) {
           <h3 className="text-xl font-semibold text-white mb-4">
             Active Games
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {activeGames.map((game) => (
               <GameDataLoader
                 key={game.gameId.toString()}
                 game={game}
-                isUserGame={true}
                 onClick={() => router.push(`/GameScreen/${game.gameId}`)}
               />
             ))}
@@ -370,7 +374,6 @@ function MyGamesGrid({ address }: { address: string }) {
               <GameDataLoader
                 key={game.gameId.toString()}
                 game={game}
-                isUserGame={true}
                 onClick={() => router.push(`/GameScreen/${game.gameId}`)}
               />
             ))}
@@ -384,11 +387,9 @@ function MyGamesGrid({ address }: { address: string }) {
 // ---------- Game Data Loader ----------
 function GameDataLoader({
   game,
-  isUserGame,
   onClick,
 }: {
   game: GameInfo;
-  isUserGame: boolean;
   onClick: () => void;
 }) {
   const { data: fullGame, isLoading, error } = useGameStatus(game.gameId);
@@ -406,7 +407,6 @@ function GameDataLoader({
   return (
     <GameCard
       game={fullGame}
-      isUserGame={isUserGame}
       error={error?.message}
       clearError={error ? clearError : undefined}
       onClick={onClick}
