@@ -27,6 +27,7 @@ import {
 } from "@/lib/contractCalls";
 import { useGameStore } from "@/store/gameStore";
 import { useEffect } from "react";
+import { useAccount } from "@micro-stacks/react";
 
 // ----------------------
 // READ HOOKS
@@ -144,7 +145,7 @@ export function useActiveGames(page: number = 1, pageSize: number = 10) {
           },
         });
       }
-    
+
       if (!allGames) {
         return [];
       }
@@ -164,43 +165,37 @@ export function useActiveGames(page: number = 1, pageSize: number = 10) {
   return query;
 }
 
-export function useMyGames(
-  user: string,
-  page: number = 1,
-  pageSize: number = 10
-) {
-  const { setMyGames } = useGameStore();
-  const query = useQuery<GameInfo[], Error>({
-    queryKey: ["myGames", user, page],
+export function useMyGames(): UseQueryResult<GameInfo[], Error> {
+  const { stxAddress } = useAccount();
+  const { addGame } = useGameStore();
+
+  return useQuery<GameInfo[], Error>({
+    queryKey: ["myGames", stxAddress ?? "invalid"],
     queryFn: async () => {
-      if (!user) return [];
-      const totalGames = await getTotalGames();
-      const start = BigInt((page - 1) * pageSize + 1);
-      const end = BigInt(Math.min(Number(totalGames), page * pageSize));
-      const userGames: GameInfo[] = [];
-      for (let i = start; i <= end; i++) {
+      if (!stxAddress) {
+        console.warn("useMyGames: No stxAddress, returning empty games");
+        return [];
+      }
+      const gameIds = Array.from({ length: 10 }, (_, i) => BigInt(i + 1));
+      const games: GameInfo[] = [];
+      for (const gameId of gameIds) {
         try {
-          const isInGame = await isUserInGame(i, user);
-          if (isInGame) {
-            const game = await getGameInfo(i);
-            userGames.push(game);
+          const game = await getGameInfo(gameId);
+          if (game.players.includes(stxAddress)) {
+            games.push(game);
+            addGame(game);
           }
         } catch (error) {
-          console.warn(`Skipping game ${i}:`, error);
+          console.warn(`useMyGames: Skipping game ${gameId}:`, error);
+          continue;
         }
       }
-      return userGames;
+      return games;
     },
-    enabled: !!user,
-    staleTime: 60000,
-    refetchOnWindowFocus: false,
+    enabled: !!stxAddress,
+    staleTime: 60_000,
+    refetchInterval: 30_000,
   });
-
-  useEffect(() => {
-    if (query.data) setMyGames(query.data);
-  }, [query.data, setMyGames]);
-
-  return query;
 }
 
 export function useGameStatus(

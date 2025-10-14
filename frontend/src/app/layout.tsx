@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-import { Providers } from "./Providers";
-import { ToastContainer } from "@/component/Toast";
 import { config } from "@fortawesome/fontawesome-svg-core";
 import "@fortawesome/fontawesome-svg-core/styles.css";
+import "./globals.css";
+import { Providers } from "./Providers";
+import AppWrapper from "./wrapper";
 
 config.autoAddCss = false;
 
@@ -34,8 +34,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <Providers>
-          {children}
-          <ToastContainer />
+          <AppWrapper>{children}</AppWrapper>
         </Providers>
       </body>
     </html>
