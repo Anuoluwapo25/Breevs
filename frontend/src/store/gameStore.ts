@@ -12,6 +12,7 @@ const serializeGameInfo = (game: GameInfo | null): any => {
     prizePool: game.prizePool.toString(),
     roundEnd: game.roundEnd.toString(),
     roundDuration: game.roundDuration.toString(),
+    eliminatedPlayers: game.eliminatedPlayers || [],
   };
 };
 
@@ -25,6 +26,7 @@ const deserializeGameInfo = (data: any): GameInfo | null => {
     prizePool: BigInt(data.prizePool),
     roundEnd: BigInt(data.roundEnd),
     roundDuration: BigInt(data.roundDuration),
+    eliminatedPlayers: data.eliminatedPlayers || [],
   };
 };
 
@@ -48,6 +50,7 @@ interface GameStore {
   setActiveGames: (games: GameInfo[]) => void;
   setMyGames: (games: GameInfo[]) => void;
   updateGameStatus: (gameId: bigint, status: GameStatus) => void;
+  updateGameInfo: (gameId: bigint, gameInfo: GameInfo) => void;
   clearGames: () => void;
   setSelectedGame: (game: GameInfo | null) => void;
   setFilters: (filters: GameStore["filters"]) => void;
@@ -120,6 +123,29 @@ export const useGameStore = create<GameStore>()(
               ? null
               : state.currentCreatorGame?.gameId === gameId
               ? { ...state.currentCreatorGame, status }
+              : state.currentCreatorGame;
+
+          return {
+            activeGames: state.activeGames.map(updateGame),
+            myGames: state.myGames.map(updateGame),
+            currentPlayerGame: newCurrentPlayerGame,
+            currentCreatorGame: newCurrentCreatorGame,
+          };
+        }),
+
+      updateGameInfo: (gameId: bigint, gameInfo: GameInfo) =>
+        set((state) => {
+          const updateGame = (g: GameInfo) =>
+            g.gameId === gameId ? { ...g, ...gameInfo } : g;
+
+          const newCurrentPlayerGame =
+            state.currentPlayerGame?.gameId === gameId
+              ? { ...state.currentPlayerGame, ...gameInfo }
+              : state.currentPlayerGame;
+
+          const newCurrentCreatorGame =
+            state.currentCreatorGame?.gameId === gameId
+              ? { ...state.currentCreatorGame, ...gameInfo }
               : state.currentCreatorGame;
 
           return {

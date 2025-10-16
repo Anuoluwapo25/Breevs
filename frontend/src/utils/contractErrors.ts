@@ -2,6 +2,48 @@ export const mapContractError = (
   error: any
 ): { code: number; message: string } => {
   const code = error?.error?.code || 0;
+
+  // Check for specific error messages in the error object
+  const errorMessage = error?.message || error?.error?.message || "";
+
+  // Handle specific error patterns
+  if (
+    errorMessage.includes("ERR-ROUND-NOT-ACTIVE") ||
+    errorMessage.includes("Round is still active")
+  ) {
+    return {
+      code: 412,
+      message: "Round is still active - wait for the timer to expire",
+    };
+  }
+
+  if (
+    errorMessage.includes("ERR-INVALID-STATE") ||
+    errorMessage.includes("Invalid game state")
+  ) {
+    return {
+      code: 402,
+      message: "Game is not in the correct state for this action",
+    };
+  }
+
+  if (
+    errorMessage.includes("ERR-NOT-HOST") ||
+    errorMessage.includes("Only the game creator")
+  ) {
+    return {
+      code: 411,
+      message: "Only the game creator can perform this action",
+    };
+  }
+
+  if (
+    errorMessage.includes("ERR-GAME-NOT-FOUND") ||
+    errorMessage.includes("Game not found")
+  ) {
+    return { code: 404, message: "Game not found" };
+  }
+
   switch (code) {
     case 100:
       return { code, message: "Game is full" };
@@ -28,7 +70,10 @@ export const mapContractError = (
     case 411:
       return { code, message: "Only the game creator can perform this action" };
     case 412:
-      return { code, message: "Round is still active" };
+      return {
+        code,
+        message: "Round is still active - wait for the timer to expire",
+      };
     case 413:
       return { code, message: "Minimum host balance not met" };
     default:

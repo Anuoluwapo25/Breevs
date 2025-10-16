@@ -5,11 +5,13 @@ import {
   uintCV,
   cvToJSON,
   cvToValue,
+  deserializeCV,
   ClarityType,
   ClarityValue,
   principalCV,
   fetchCallReadOnlyFunction,
   standardPrincipalCV,
+  PostConditionMode,
 } from "@stacks/transactions";
 import { STACKS_TESTNET } from "@stacks/network";
 import { clarityToJSON } from "@/utils/clarity";
@@ -48,14 +50,15 @@ export interface GameInfo {
   gameId: bigint;
   creator: string;
   stake: bigint;
-  playerCount: number;
-  status: GameStatus;
-  players: string[];
   prizePool: bigint;
-  winner: string | null;
+  players: string[];
+  eliminatedPlayers: string[];
+  playerCount: number;
   currentRound: number;
   roundEnd: bigint;
   roundDuration: bigint;
+  status: GameStatus;
+  winner: string | null;
   totalRounds: number;
 }
 
@@ -257,9 +260,73 @@ export async function spin(
           if (!confirmed) throw new Error("Transaction not confirmed");
 
           const txResult = await fetchTransactionResult(txId);
-          const value = txResult?.value?.value || "";
+          console.log("Spin transaction result:", {
+            txId,
+            txResult,
+            value: txResult?.value,
+            type: txResult?.value?.type,
+          });
+
+          // Handle case where transaction result is empty
+          if (!txResult || !txResult.value) {
+            throw new Error("No transaction result returned");
+          }
+
+          // Handle ResponseOk wrapping - the contract returns (ok principal)
+          let actualValue = txResult.value;
+          if (actualValue.type === ClarityType.ResponseOk) {
+            actualValue = actualValue.value;
+          }
+
+          // Check for error response
+          if (txResult.value.type === ClarityType.ResponseErr) {
+            throw new Error(
+              `Spin transaction failed with error code: ${cvToValue(
+                txResult.value
+              )}`
+            );
+          }
+
+          // Check for optional none
+          if (actualValue.type === ClarityType.OptionalNone) {
+            throw new Error("Spin returned no eliminated player");
+          }
+
+          // Extract the principal value
+          const value = cvToValue(actualValue);
+
+          console.log("Extracted eliminated player:", {
+            value,
+            type: typeof value,
+            actualValue,
+          });
+
+          // Validate it's a valid Stacks address
+          if (typeof value !== "string" || !value.startsWith("ST")) {
+            console.error("Invalid value extracted:", {
+              value,
+              type: typeof value,
+              actualValue,
+              originalTxResult: txResult,
+            });
+            throw new Error(`Invalid eliminated player address: ${value}`);
+          }
+
+          // Validate against game players
+          const gameInfo = await getGameInfo(gameId);
+          if (!gameInfo.players.includes(value)) {
+            console.error("Eliminated player not in game players:", {
+              eliminatedPlayer: value,
+              gamePlayers: gameInfo.players,
+            });
+            throw new Error(
+              `Eliminated player ${value} not found in game players`
+            );
+          }
+
           resolve({ spinTX: { txId, value } });
         } catch (error) {
+          console.error("Spin transaction error:", error);
           reject(new Error(mapContractError(error).message));
         }
       },
@@ -288,7 +355,9 @@ export async function advanceRound(gameId: bigint): Promise<{ txId: string }> {
 
           resolve({ txId });
         } catch (error) {
-          reject(new Error(mapContractError(error).message));
+          console.error("Advance round transaction error:", error);
+          const mappedError = mapContractError(error);
+          reject(new Error(mappedError.message));
         }
       },
       onCancel: () => reject(new Error("User canceled advanceRound")),
@@ -306,6 +375,9 @@ export async function claimPrize(gameId: bigint): Promise<{ txId: string }> {
       functionArgs: [uintCV(gameId)],
       network: STACKS_TESTNET,
       appDetails: APP_DETAILS,
+
+      postConditionMode: PostConditionMode.Allow,
+
       onFinish: async (data) => {
         try {
           const txId = data?.txId;
@@ -321,6 +393,7 @@ export async function claimPrize(gameId: bigint): Promise<{ txId: string }> {
       },
       onCancel: () => reject(new Error("User canceled claimPrize")),
     };
+
     openContractCall(options);
   });
 }
@@ -371,7 +444,6 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
     }
 
     const jsonData = cvToJSON(result.value);
-
     const data: GameInfoTuple = jsonData.value as GameInfoTuple;
 
     if (!data || typeof data !== "object") {
@@ -434,6 +506,38 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
       throw new Error(`Invalid winner format for gameId ${gameId}: ${winner}`);
     }
 
+    // Fetch eliminated players efficiently using contract helper function
+    let eliminatedPlayers: string[] = [];
+
+    // Only fetch if game is in progress or ended (no eliminations in Active status)
+    const gameStatus = toNumber(data.status?.value, "status") as GameStatus;
+    if (gameStatus !== GameStatus.Active && playerAddresses.length > 0) {
+      try {
+        const eliminatedData = await fetchCallReadOnlyFunction({
+          contractAddress: CONTRACT_ADDRESS,
+          contractName: CONTRACT_NAME,
+          functionName: "get-eliminated-players-list",
+          functionArgs: [uintCV(gameId)],
+          network: STACKS_TESTNET,
+          senderAddress: CONTRACT_ADDRESS,
+        });
+
+        if (eliminatedData.type === ClarityType.ResponseOk) {
+          const eliminated = cvToValue(eliminatedData.value);
+          if (Array.isArray(eliminated)) {
+            eliminatedPlayers = eliminated;
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `Failed to fetch eliminated players for game ${gameId}, using fallback:`,
+          error
+        );
+        // Fallback: assume no eliminations if contract call fails
+        eliminatedPlayers = [];
+      }
+    }
+
     return {
       gameId,
       creator,
@@ -441,6 +545,7 @@ export async function getGameInfo(gameId: bigint): Promise<GameInfo> {
       playerCount: toNumber(players.length, "playerCount"),
       status: toNumber(data.status?.value, "status") as GameStatus,
       players: playerAddresses,
+      eliminatedPlayers, // Add this
       prizePool: toBigInt(data["prize-pool"]?.value, "prize-pool"),
       winner,
       currentRound: toNumber(data["current-round"]?.value, "current-round"),
@@ -585,20 +690,38 @@ export async function isGameCreator(
   }
 }
 
-// Helper to fetch transaction result (for spin)
 async function fetchTransactionResult(txId: string): Promise<any> {
   try {
     const response = await fetch(
       `https://stacks-node-api.testnet.stacks.co/extended/v1/tx/${txId}`
     );
     const tx = await response.json();
+
+    console.log("Transaction fetch response:", {
+      txId,
+      status: tx.tx_status,
+      result: tx.tx_result,
+    });
+
     if (tx.tx_status !== "success") {
       throw new Error(
         `Transaction ${txId} failed: ${tx.tx_result?.repr || "Unknown error"}`
       );
     }
-    return tx?.tx_result;
+
+    // Parse the hex result into a Clarity value
+    if (tx.tx_result?.hex) {
+      const clarityValue = deserializeCV(tx.tx_result.hex);
+      console.log("Deserialized Clarity value:", {
+        clarityValue,
+        type: clarityValue.type,
+      });
+      return { value: clarityValue, raw: tx.tx_result };
+    }
+
+    throw new Error("No hex result in transaction");
   } catch (error) {
-    throw new Error(mapContractError(error).message);
+    console.error("fetchTransactionResult error:", error);
+    throw error;
   }
 }
