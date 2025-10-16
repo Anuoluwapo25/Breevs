@@ -292,20 +292,24 @@ export interface SpinResult {
   spinTX: { txId: string; value: string };
 }
 
-export function useSpin() {
+export const useSpin = () => {
+  const { updateGameInfo } = useGameStore();
   const qc = useQueryClient();
   return useMutation<SpinResult, Error, { gameId: bigint }>({
     mutationFn: ({ gameId }) => spin(gameId),
-    onSuccess: () => {
+    onSuccess: async (data, variables) => {
+      const gameInfo = await getGameInfo(variables.gameId);
+      updateGameInfo(variables.gameId, gameInfo);
       qc.invalidateQueries({ queryKey: ["activeGames"] });
       qc.invalidateQueries({ queryKey: ["myGames"] });
-      qc.invalidateQueries({ queryKey: ["gameStatus"] });
+      qc.invalidateQueries({ queryKey: ["game-status"] });
     },
     onError: (error) => {
+      console.error("Spin error:", error);
       throw new Error(error.message);
     },
   });
-}
+};
 
 export function useAdvanceRound() {
   const qc = useQueryClient();
@@ -322,18 +326,38 @@ export function useAdvanceRound() {
   });
 }
 
+// export function useClaimPrize() {
+//   const qc = useQueryClient();
+//   return useMutation<{ txId: string }, Error, { gameId: bigint }>({
+//     mutationFn: ({ gameId }) => claimPrize(gameId),
+//     onSuccess: () => {
+//       qc.invalidateQueries({ queryKey: ["activeGames"] });
+//       qc.invalidateQueries({ queryKey: ["myGames"] });
+//       qc.invalidateQueries({ queryKey: ["gameStatus"] });
+//       qc.invalidateQueries({ queryKey: ["prizeClaimed"] });
+//     },
+//     onError: (error) => {
+//       throw new Error(error.message);
+//     },
+//   });
+// }
+
 export function useClaimPrize() {
   const qc = useQueryClient();
-  return useMutation<{ txId: string }, Error, { gameId: bigint }>({
-    mutationFn: ({ gameId }) => claimPrize(gameId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["activeGames"] });
-      qc.invalidateQueries({ queryKey: ["myGames"] });
-      qc.invalidateQueries({ queryKey: ["gameStatus"] });
-      qc.invalidateQueries({ queryKey: ["prizeClaimed"] });
-    },
-    onError: (error) => {
-      throw new Error(error.message);
-    },
-  });
+  return useMutation<{ txId: string }, Error, { gameId: bigint; user: string }>(
+    {
+      mutationFn: ({ gameId }) => claimPrize(gameId),
+      onSuccess: (_, { gameId, user }) => {
+        qc.invalidateQueries({ queryKey: ["activeGames"] });
+        qc.invalidateQueries({ queryKey: ["myGames"] });
+        qc.invalidateQueries({ queryKey: ["gameStatus", gameId.toString()] });
+        qc.invalidateQueries({
+          queryKey: ["isPrizeClaimed", gameId.toString(), user],
+        });
+      },
+      onError: (error) => {
+        throw new Error(error.message);
+      },
+    }
+  );
 }
